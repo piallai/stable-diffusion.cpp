@@ -690,8 +690,6 @@ public:
                 ggml_backend_is_cpu(clip_backend) ? "RAM" : "VRAM");
         }
 
-        int64_t t1 = ggml_time_ms();
-        LOG_INFO("loading model from '%s' completed, taking %.2fs", SAFE_STR(sd_ctx_params->model_path), (t1 - t0) * 1.0f / 1000);
 #ifdef SD_EXAMPLES_GLOVE_GUI
         GlvApp::get_progression("Model")->end();
         GlvApp::get_progression("clip_l")->end();
