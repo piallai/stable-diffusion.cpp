@@ -1962,8 +1962,8 @@ int main(int argc, char* argv[]) {
 
 #ifdef SD_EXAMPLES_IMG2IMG_REPEAT
             if (glove_recurrent_var.l_img2img_sequence) {
-                std::string dummy_name2       = dummy_name + "-" + std::to_string(glove_recurrent_var.count);
-                std::string final_image_path2 = i > 0 ? dummy_name2 + "_" + std::to_string(i + 1) + ext : dummy_name2 + ext;
+                std::string base_path2        = base_path + "-" + std::to_string(glove_recurrent_var.count);
+                std::string final_image_path2 = i > 0 ? base_path2 + "_" + std::to_string(i + 1) + file_ext : base_path2 + file_ext;
                 if (is_jpg) {
                     stbi_write_jpg(final_image_path2.c_str(), results[i].width, results[i].height, results[i].channel,
                                    results[i].data, 90, get_image_params(params, params.seed + i).c_str());
