@@ -20,8 +20,6 @@ This repository is a fork of [stable-diffusion.cpp](https://github.com/leejet/st
   
   - **-bin-win-cuda12-x64** : Compatible with Nvidia graphic card GeForce GTX 950 and after (ie: RTX series are compatible).
 
-## Features
-
 - The model is reloaded only if its parameters are changed
   
   - Possibility to generate images with different prompts on the fly
