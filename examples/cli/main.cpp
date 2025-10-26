@@ -1497,7 +1497,7 @@ bool load_images_from_dir(const std::string dir,
 
 #ifdef SD_EXAMPLES_GLOVE_GUI
 #ifdef SD_EXAMPLES_GLOVE_GUI_DESKTOP
-//#pragma GLOVE_APP_MSVC_NO_CONSOLE
+#pragma GLOVE_APP_MSVC_NO_CONSOLE
 #endif
 struct RecurrentStruct {
     sd_ctx_t* sd_ctx = NULL;
