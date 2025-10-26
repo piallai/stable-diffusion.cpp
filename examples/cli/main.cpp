@@ -218,7 +218,7 @@ void print_params(SDParams params) {
     free(high_noise_sample_params_str);
 }
 
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(SD_EXAMPLES_GLOVE_GUI)
 static std::string utf16_to_utf8(const std::wstring& wstr) {
     if (wstr.empty())
         return {};
@@ -297,6 +297,28 @@ struct ArgOptions {
     std::vector<BoolOption> bool_options;
     std::vector<ManualOption> manual_options;
 };
+
+#ifdef SD_EXAMPLES_GLOVE_GUI
+template <class Toption>
+bool checkOptionsInCLI(int argc, const char** argv, const std::vector<Toption>& _options) {
+    std::string arg;
+    bool found_all_options = true;
+    for (auto option = _options.cbegin(); option != _options.cend(); ++option) {
+        bool found_arg = false;
+        for (int i = 1; i < argc && !found_arg; i++) {
+            arg = argv[i];
+            if (arg == option->long_name || arg == option->short_name) {
+                found_arg = true;
+            }
+        }
+        if (!found_arg) {
+            fprintf(stderr, "error: can not find argument for option: %s\n", option->long_name.c_str());
+        }
+        found_all_options &= found_arg;
+    }
+    return found_all_options;
+}
+#endif
 
 bool parse_options(int argc, const char** argv, ArgOptions& options) {
     bool invalid_arg = false;
@@ -384,6 +406,17 @@ bool parse_options(int argc, const char** argv, ArgOptions& options) {
         fprintf(stderr, "error: invalid parameter for argument: %s\n", arg.c_str());
         return false;
     }
+#if defined(SD_EXAMPLES_GLOVE_GUI) && defined(CHECK_ARGS)
+    // Check that every option exists in CLI args
+    bool found_options = checkOptionsInCLI(argc, argv, options.string_options);
+    found_options &= checkOptionsInCLI(argc, argv, options.int_options);
+    found_options &= checkOptionsInCLI(argc, argv, options.float_options);
+    found_options &= checkOptionsInCLI(argc, argv, options.bool_options);
+    found_options &= checkOptionsInCLI(argc, argv, options.manual_options);
+    if (!found_options) {
+        __debugbreak();
+    }
+#endif
     return true;
 }
 
@@ -1464,27 +1497,20 @@ bool load_images_from_dir(const std::string dir,
 
 #ifdef SD_EXAMPLES_GLOVE_GUI
 #ifdef SD_EXAMPLES_GLOVE_GUI_DESKTOP
-#pragma GLOVE_APP_MSVC_NO_CONSOLE
+//#pragma GLOVE_APP_MSVC_NO_CONSOLE
 #endif
 struct RecurrentStruct {
     sd_ctx_t* sd_ctx = NULL;
     GlvSDParams params;
     bool model_updated(const GlvSDParams& _params) {
         bool l_model_upddated = _params.get_model() != params.get_model();
-        l_model_upddated |= _params.get_diffusion_model() != params.get_diffusion_model();
         l_model_upddated |= _params.get_model_addons() != params.get_model_addons();
-        l_model_upddated |= _params.get_advanced_params().get_taesd() != params.get_advanced_params().get_taesd();
-        l_model_upddated |= _params.get_advanced_params().get_control_net() != params.get_advanced_params().get_control_net();
-        l_model_upddated |= _params.get_advanced_params().get_embd_dir() != params.get_advanced_params().get_embd_dir();
-        l_model_upddated |= _params.get_photomaker_params().get_stacked_id_embd_dir() != params.get_photomaker_params().get_stacked_id_embd_dir();
-        l_model_upddated |= _params.get_advanced_params().get_vae_tiling() != params.get_advanced_params().get_vae_tiling();
+        l_model_upddated |= _params.get_photomaker_params() != params.get_photomaker_params();
+        l_model_upddated |= _params.get_advanced_params().get_Vae_tiling_params() != params.get_advanced_params().get_Vae_tiling_params();
         l_model_upddated |= _params.get_advanced_params().get_threads() != params.get_advanced_params().get_threads();
         l_model_upddated |= _params.get_advanced_params().get_type() != params.get_advanced_params().get_type();
         l_model_upddated |= _params.get_advanced_params().get_rng() != params.get_advanced_params().get_rng();
-        l_model_upddated |= _params.get_advanced_params().get_schedule() != params.get_advanced_params().get_schedule();
-        l_model_upddated |= _params.get_advanced_params().get_clip_on_cpu() != params.get_advanced_params().get_clip_on_cpu();
-        l_model_upddated |= _params.get_advanced_params().get_control_net_cpu() != params.get_advanced_params().get_control_net_cpu();
-        l_model_upddated |= _params.get_advanced_params().get_vae_on_cpu() != params.get_advanced_params().get_vae_on_cpu();
+        l_model_upddated |= _params.get_advanced_params().get_On_CPU_params() != params.get_advanced_params().get_On_CPU_params();
         l_model_upddated |= _params.get_advanced_params().get_diffusion_fa() != params.get_advanced_params().get_diffusion_fa();
         return l_model_upddated;
     }
@@ -1529,7 +1555,7 @@ int main(int argc, char* argv[]) {
     GLOVE_APP_PARAM(GlvSDParams);
 
 #ifdef SD_EXAMPLES_IMG2IMG_REPEAT
-    if (glove_parametrization.get_init_img().is_equivalent(glove_parametrization.get_output())) {
+    if (glove_parametrization.get_image_video_input_params().get_init_img().is_equivalent(glove_parametrization.get_output())) {
         if (!glove_recurrent_var.l_img2img_sequence) {
             glove_recurrent_var.count = 0;
         }

@@ -21,7 +21,7 @@
 
 #define GLOVE_VERSION_MAJOR 0
 #define GLOVE_VERSION_MINOR 7
-#define GLOVE_VERSION_PATCH 8
+#define GLOVE_VERSION_PATCH 9
 
 #ifndef GLOVE_DISABLE_QT
 #define OPTION_ENABLE_SLV_QT_PROGRESS 1
@@ -8310,9 +8310,10 @@ namespace slv {
                 if (it != _json.end()) {
                     Tdat value;
                     SlvStatus status_json = slv::rw::json::readJson(value, *it);
-                    if (status_json) {
+                    if (status_json.get_type() != SlvStatus::statusType::critical) {
                         _value = value;
-                    } else {
+                    }
+                    if (!status_json) {
                         status = SlvStatus(SlvStatus::statusType::warning, "Problem reading json : " + _name);
                         status.add_sub_status(status_json);
                     }
@@ -20595,7 +20596,7 @@ int GlvApp::main(int _argc, char* _argv[], bool _l_auto_glove, bool _l_threaded,
 		Tparametrization parametrization;
 
 #if OPTION_USE_THIRDPARTY_JSON==1
-		if (SlvCLI::find_json_file(_argc, _argv)) {
+		if (SlvCLI::find_json_file(_argc, _argv) >= 0) {
 
 			std::ifstream file_stream_input;
 			std::string file_name = _argv[SlvCLI::find_json_file(_argc, _argv)];
@@ -23216,7 +23217,7 @@ inline std::size_t slv::string::find_first_of(const std::string& _string, char _
 }
 
 inline SlvFile::SlvFile() {
-
+    io_mode = IO::Any;
 }
 
 inline SlvFile::SlvFile(const std::string& _path, IO _io_mode, std::string _description)
