@@ -47,7 +47,7 @@ This repository is a fork of [stable-diffusion.cpp](https://github.com/leejet/st
 
 - Warning/error messages display
 
-- Possibility to generate images sequences using **img2img** mode and by setting the output image to be the same as the input image. See **Images sequence** parameters.
+- Possibility to generate images sequences using **img_gen** mode and by setting the output image to be the same as the input image. See **Images sequence** parameters.
 
 ## Misc
 
