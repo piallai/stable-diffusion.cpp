@@ -1214,10 +1214,10 @@ public:
 		if (!lora_f2m.empty()) {
 			LOG_INFO("apply_loras completed, taking %.2fs", (t1 - t0) * 1.0f / 1000);
 			LOG_DEBUG("prompt after extract and remove lora: \"%s\"", result_pair.second.c_str());
-#ifdef SD_EXAMPLES_GLOVE_GUI
-			GlvApp::get_progression("LoRA")->end();
-#endif
 		}
+#ifdef SD_EXAMPLES_GLOVE_GUI
+        GlvApp::get_progression("LoRA")->end();
+#endif
         return result_pair.second;
     }
 
