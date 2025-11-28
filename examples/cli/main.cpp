@@ -1755,6 +1755,7 @@ int main(int argc, char* argv[]) {
     GlvApp::get_progression("Generating image")->set_recurrent(true);
     GlvApp::get_progression("Decoding");
     GlvApp::get_progression("Result");
+    GlvApp::get_progression("Decoding latent video");
 
 #ifdef SD_EXAMPLES_GLOVE_GUI_DESKTOP
 #define GLOVE_APP_AUTO true

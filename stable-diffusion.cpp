@@ -3744,6 +3744,9 @@ SD_API sd_image_t* generate_video(sd_ctx_t* sd_ctx, const sd_vid_gen_params_t* s
 
         int64_t sampling_end = ggml_time_ms();
         LOG_INFO("sampling completed, taking %.2fs", (sampling_end - sampling_start) * 1.0f / 1000);
+#ifdef SD_EXAMPLES_GLOVE_GUI
+        GlvApp::get_progression("Generating image")->finish(false);
+#endif
         if (sd_ctx->sd->free_params_immediately) {
             sd_ctx->sd->diffusion_model->free_params_buffer();
         }
@@ -3765,9 +3768,15 @@ SD_API sd_image_t* generate_video(sd_ctx_t* sd_ctx, const sd_vid_gen_params_t* s
 
     int64_t t4 = ggml_time_ms();
     LOG_INFO("generating latent video completed, taking %.2fs", (t4 - t2) * 1.0f / 1000);
+#ifdef SD_EXAMPLES_GLOVE_GUI
+    GlvApp::get_progression("Decoding latent video")->start();
+#endif
     struct ggml_tensor* vid = sd_ctx->sd->decode_first_stage(work_ctx, final_latent, true);
     int64_t t5              = ggml_time_ms();
     LOG_INFO("decode_first_stage completed, taking %.2fs", (t5 - t4) * 1.0f / 1000);
+#ifdef SD_EXAMPLES_GLOVE_GUI
+    GlvApp::get_progression("Decoding latent video")->end();
+#endif
     if (sd_ctx->sd->free_params_immediately) {
         sd_ctx->sd->first_stage_model->free_params_buffer();
     }
