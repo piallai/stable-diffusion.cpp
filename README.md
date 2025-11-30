@@ -35,6 +35,14 @@ This repository is a fork of [stable-diffusion.cpp](https://github.com/leejet/st
   - Parameters can be loaded
     - by using the *Load* button
     - or: <code>sd -glove 'path-to-parameters-file'</code>
+	
+- Parameters filtering:
+
+  - The parameters can be filtered by name
+  
+- Parameters parsing
+
+  - A command line can be pasted using the *Parse* button
 
 - Progress :
   
