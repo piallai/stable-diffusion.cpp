@@ -150,7 +150,7 @@ glvm_parametrization(GlvSDParams, "SD params",
     batch_count, unsigned int, "--batch-count@-b", "number of images to generate", 1,
     video_params, GlvSDParamsVideo, "Video", "", GlvSDParamsVideo(),
     advanced_params, GlvSDParamsAdvanced, "Advanced", "", GlvSDParamsAdvanced(),
-    images_sequence_params, GlvSDImagesSequence, "Images sequence", "Used only with img2img mode and if --init-img points to the same image as --output", GlvSDImagesSequence())
+    images_sequence_params, GlvSDImagesSequence, "Images sequence", "Used only with img_gen mode and if --init-img points to the same image as --output", GlvSDImagesSequence())
 
 GLOVE_APP_CLI_PARAMETRIZATION_OUTPUT_DIRECTORY(GlvSDParams, "--output")
 
