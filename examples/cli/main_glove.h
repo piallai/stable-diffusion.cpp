@@ -4,7 +4,7 @@
 #define GLOVE_ENABLE_JSON
 #include "glove.h"
 
-glvm_SlvEnum(ProcessingMode, img_gen, vid_gen, convert);
+glvm_SlvEnum(ProcessingMode, img_gen, vid_gen, convert, upscale);
 glvm_SlvEnum_named(WeightType, weight_file_type, "", f32, "f32", f16, "f16", q4_0, "q4_0", q4_1, "q4_1", q5_0, "q5_0", q5_1, "q5_1", q8_0, "q8_0", q2_k, "q2_k", q3_k, "q3_k", q4_k, "q4_k");
 glvm_SlvEnum_named(SamplingMethod, euler, "euler", euler_a, "euler_a", heun, "heun", dpm2, "dpm2", dpmpp2s_a, "dpm++2s_a", dpmpp2m, "dpm++2m", dpmpp2mv2, "dpm++2mv2", ipndm, "ipndm", ipndm_v, "ipndm_v", lcm, "lcm", ddim_trailing, "ddim_trailing", tcd, "tcd");
 glvm_SlvEnum(Rng, std_default, cuda);
@@ -50,12 +50,15 @@ glvm_parametrization(GlvSDParamsPreview, "Preview params",
     preview_noisy, bool, "--preview-noisy", "enables previewing noisy inputs of the models rather than the denoised outputs", true
 )
 
+glvm_parametrization(GlvSDParamsUpscale, "Upscale params",
+    upscale_model, SlvFile, "--upscale-model", "path to esrgan model. Upscale images after generate, just RealESRGAN_x4plus_anime_6B supported by now", SlvFile(SlvFile::IO::Read),
+    upscale_repeats, unsigned int, "--upscale-repeats", "Run the ESRGAN upscaler this many times (default 1)", 1
+)
+
 glvm_parametrization(GlvSDParamsAdvanced, "Advanced params",
                         preview_params, GlvSDParamsPreview, "Preview", "", GlvSDParamsPreview(),
                         rng, Rng, "--rng", "RNG (default: cuda)", Rng::cuda,
                         threads, int, "--threads@-t", "number of threads to use during computation (default: -1) \nIf threads <= 0, then threads will be set to the number of CPU physical cores", -1,
-                        upscale_model, SlvFile, "--upscale-model", "path to esrgan model. Upscale images after generate, just RealESRGAN_x4plus_anime_6B supported by now", SlvFile(SlvFile::IO::Read),
-                        upscale_repeats, unsigned int, "--upscale-repeats", "Run the ESRGAN upscaler this many times (default 1)", 1,
                         type, WeightType, "--type", "weight type (examples: f32, f16, q4_0, q4_1, q5_0, q5_1, q8_0, q2_k, q3_k, q4_k) \nIf not specified, the default is the type of the weight file", WeightType::weight_file_type,
                         tensor_type_rules, std::string, "--tensor-type-rules", "weight type per tensor pattern (example: \"^vae\\.=f16,model\\.=q8_0\")", "",
                         prediction, Prediction, "--prediction", "prediction type override, one of [eps, v, edm_v, sd3_flow, flux_flow, flux2_flow]", Prediction::Default,
@@ -144,6 +147,7 @@ glvm_parametrization(GlvSDParams, "SD params",
     mode, ProcessingMode, "--mode", "run mode, one of: [img_gen, convert], default: img_gen", ProcessingMode::img_gen,
     model, SlvFile, "--model@-m", "path to full model", SlvFile("./", SlvFileExtensions({".safetensors", ".ckpt"}), SlvFile::IO::Read),
     model_addons, GlvSDModelAddons, "Model addons", "", GlvSDModelAddons(), photomaker_params, GlvSDParamsPhotomaker, "Photomaker", "", GlvSDParamsPhotomaker(),
+    upscale_params, GlvSDParamsUpscale, "Upscale", "", GlvSDParamsUpscale(),
     chroma_params, GlvSDParamsChroma, "Chroma", "", GlvSDParamsChroma(),
     image_video_input_params, GlvSDParamsImageVideoInput, "Image/video input", "", GlvSDParamsImageVideoInput(),
     output, SlvFile, "--output@-o", "path to write result image to (default: ./output.png)", SlvFile("./output.png", SlvFileExtensions({".png", ".jpg", ".jpeg", ".jpe"}), SlvFile::IO::Write),

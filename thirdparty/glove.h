@@ -21,7 +21,7 @@
 
 #define GLOVE_VERSION_MAJOR 0
 #define GLOVE_VERSION_MINOR 7
-#define GLOVE_VERSION_PATCH 9
+#define GLOVE_VERSION_PATCH 10
 
 #ifndef GLOVE_DISABLE_QT
 #define OPTION_ENABLE_SLV_QT_PROGRESS 1
@@ -771,7 +771,10 @@ T slv::string::read_data_line(std::string& _string_line, const std::string _sepa
 
     std::string data_string = extract_str_up_to(_string_line, _separator);
     T data = string_to_value<T>(data_string);
-    _string_line.erase(0, data_string.size() + _separator.size());
+    _string_line.erase(0, data_string.size());
+    while (_string_line.substr(0, _separator.size()) == _separator) {
+        _string_line.erase(0, _separator.size());
+    }
     return data;
 
 }
@@ -3622,6 +3625,15 @@ class GlvDescribedWidget_base : public QWidget {
 
     Q_OBJECT
 
+public :
+
+    /*! Get the name of the data.*/
+    const std::string& get_data_name() const;
+    /*! Get the secondary name of the data.*/
+    std::string get_data_alias() const;
+    /*! Get the data widget. Is a GlvWidgetData in general.*/
+    virtual QWidget* get_data_widget() const = 0;
+
 protected:
 
     QGridLayout* layout;
@@ -3632,6 +3644,9 @@ protected:
 
     GlvDescribedWidget_base(const std::string& _data_name);
     virtual ~GlvDescribedWidget_base();
+
+    /*! Alias related to name (ie: secondary name).*/
+    void set_alias(const std::string& _alias);
 
     /*! Manage display of data type in 'WhatsThis'*/
     virtual void enable_data_type_info(bool _l_enable) = 0;
@@ -3698,6 +3713,8 @@ public:
     std::vector<QWidget*>::iterator delete_optional_widget(QWidget* _widget);
     /*! Remove and delete all optional widgets.*/
     void delete_optional_widgets();
+    /*! Get the data widget. Is a GlvWidgetData in general.*/
+    QWidget* get_data_widget() const;
 
 protected:
 
@@ -3912,261 +3929,6 @@ struct GlvWidgetMakerConnect<Tdata> {
 #undef Tdata
 
 #endif
-
-/*! Class managing a value ranging in [0, 1].*/
-class SlvProportion : public SlvIOS {
-
-public:
-
-    typedef double Tvalue;
-
-private:
-
-    Tvalue value;
-
-public:
-
-    SlvProportion(Tvalue _value = 0.);
-    ~SlvProportion();
-
-    /*! Cast SlvProportion to value type.*/
-    operator Tvalue() const;
-
-    /*! Assign a \p _value to the instance.*/
-    SlvProportion& operator=(const Tvalue& _value);
-
-    bool readB(std::ifstream& _input_file);
-    void writeB(std::ofstream& _output_file) const;
-
-private:
-
-    void istream(std::istream& _is);
-    void ostream(std::ostream& _os) const;
-
-};
-
-#ifndef GLOVE_DISABLE_QT
-
-class QSlider;
-class QLabel;
-
-/*! Widget managing a ratio value SlvProportion.
-* The value is in the range [0, 1].
-* The interaction can be done using a slider or a direct value input.*/
-class GlvProportionWidget : public QWidget {
-
-    Q_OBJECT
-
-private:
-
-    QDoubleSpinBox* value_widget;
-    QLabel* percentage_label;
-    QSlider* slider;
-
-    int slider_size;
-
-public:
-
-    /*! \p _proportion : initial value.
-    * \p _slider_size : number of sampled values for the slider.*/
-    GlvProportionWidget(SlvProportion _proportion = 0, int _slider_size = 100, QWidget* _parent = 0);
-    ~GlvProportionWidget();
-
-    SlvProportion get_value() const;
-
-    /*! Set the number of sampled values for the slider.*/
-    void set_slider_size(int _slider_size);
-
-    void set_editable(bool l_editable);
-
-public slots:
-
-    void set_value(const SlvProportion& _proportion);
-
-private slots:
-
-    void set_value_to_spinbox(int _value);
-    void set_value_to_slider(double _value);
-    void valueChanged_slot(double _value);
-
-signals:
-    void valueChanged(double _value);
-
-};
-
-#define Tdata SlvProportion
-
-/*! GlvWidgetData for type SlvProportion.*/
-template <>
-class GlvWidgetData<Tdata> : public GlvProportionWidget {
-
-public:
-    GlvWidgetData(Tdata _ratio = Tdata(), QWidget* _parent = 0);
-    ~GlvWidgetData();
-
-};
-
-template <>
-struct GlvWidgetMakerConnect<Tdata> {
-    static void connect(GlvWidgetData<Tdata>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
-        QObject::connect(_widget, SIGNAL(valueChanged(double)), _widget_connector, SLOT(valueChanged_slot(double)));
-    }
-};
-
-#undef Tdata
-
-#define Tdata std::string
-/*! GlvWidgetData specialization for type: std::string.*/
-template <>
-class GlvWidgetData<Tdata> : public QLineEdit {
-public:
-    GlvWidgetData(QWidget* _parent = 0);
-    GlvWidgetData(const Tdata& _value, QWidget* _parent = 0);
-    ~GlvWidgetData();
-    void set_editable(bool l_editable);
-    Tdata get_value() const;
-    void set_value(const Tdata& _value);
-};
-
-template <>
-struct GlvWidgetMakerConnect<Tdata> {
-    static void connect(GlvWidgetData<Tdata>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
-        QObject::connect(_widget, SIGNAL(textChanged(const QString&)), _widget_connector, SLOT(valueChanged_slot(const QString&)));
-    }
-};
-#undef Tdata
-
-#endif
-
-template <class T1, class T2>
-std::ostream& operator<<(std::ostream& _os, const std::pair<T1, T2>& _pair) {
-    _os << "[" << _pair.first << " ; " << _pair.second << "]";
-    return _os;
-}
-
-template <class T1, class T2>
-std::istream& operator>>(std::istream& _is, std::pair<T1, T2>& _pair) {
-    _is >> _pair.first;
-    _is >> _pair.second;
-    return _is;
-}
-
-struct SlvCLI {
-
-	/*! Parse \p _argc and \p _argv and return the corresponding parametrization.*/
-	template <class Tparametrization>
-	static Tparametrization parse(int _argc, char* _argv[]);
-
-	struct Arguments;
-
-	/*! Parse \p _argc and \p _argv and apply to \p _parametrization.*/
-	template <class Tparametrization>
-	static std::pair<Arguments, SlvStatus> parse(Tparametrization& _parametrization, int _argc, char* _argv[]);
-	/*! Apply \p _arguments to \p _parametrization.
-	* If conflicts exist in the arguments, they are being filtered out of \p _arguments. Ex: redundant multiple parameter name correspondences.*/
-	template <class Tparametrization>
-	static SlvStatus parse(Tparametrization& _parametrization, Arguments& _arguments);
-
-	/*! Returns true if \p _argv contains "-glove".*/
-	static bool has_glove(int _argc, char* _argv[]);
-
-	/*! Returns index of the argument being a json file. Found by file extension.*/
-	static int find_json_file(int _argc, char* _argv[]);
-
-	/*! Create argc/argv based on provided arguments.*/
-	static std::pair<int, char**> get_arguments(const std::vector< std::pair<std::string, std::string> >& _parameter_arguments, const std::vector<std::string>& _solo_arguments);
-
-	struct Arguments {
-
-	public :
-
-		/*! Parameter identifier (starting with '-') and corresponding value.*/
-		typedef std::map<std::string, std::vector<std::string> > Tparameters;
-
-	private:
-
-		/*! Parameter identifier (starting with '-') and corresponding value.*/
-		Tparameters parameter_arguments;
-		/*! Arguments that are not parameters.*/
-		std::vector<std::string> solo_arguments;
-		/*! Single argument of the -glove cli input. Used for loading a parametrization.*/
-		std::string glove_argument;
-		/*! Parse arguments.*/
-		void parse(int _argc, char* _argv[]);
-
-	public:
-
-		Arguments(int _argc, char* _argv[]);
-		/*! Get arguments that are not parameters. Ex: "-option".*/
-		const std::vector<std::string>& get_solo_arguments() const;
-		/*! Get list of arguments and their corresponding value. Ex: "-param 17".
-		* Each parameter argument cas be accessed by its name (ex: "-param"), and return a vector of associated values.
-		* A vector is used in case multiple identical arguments are provided (ex: "-param -17 -param 5").*/
-		const Tparameters& get_parameter_arguments() const;
-		/*! Get single argument of the -glove cli input. Used for loading a parametrization.*/
-		const std::string& get_glove_argument() const;
-		/*! Return true if the instance does not store any parameter.*/
-		bool is_empty() const;
-		/*! Remove all arguments except those which name is in \p _arguments_remaining.*/
-		void filter(const std::vector<std::string>& _arguments_remaining);
-		
-	};
-
-};
-
-template <class Tparametrization>
-Tparametrization SlvCLI::parse(int _argc, char* _argv[]) {
-
-	Tparametrization parametrization;
-	parse(parametrization, _argc, _argv);
-
-	return parametrization;
-}
-
-template <class Tparametrization>
-std::pair<SlvCLI::Arguments, SlvStatus> SlvCLI::parse(Tparametrization& _parametrization, int _argc, char* _argv[]) {
-
-	Arguments arguments(_argc, _argv);
-
-	SlvStatus status = parse(_parametrization, arguments);
-
-	return { arguments, status };
-}
-
-template <class Tparametrization>
-SlvStatus SlvCLI::parse(Tparametrization& _parametrization, Arguments& _arguments) {
-
-	SlvStatus status;
-
-	if (!_arguments.is_empty()) {
-
-		std::map<std::string, std::string> stream_values;
-		for (Arguments::Tparameters::const_iterator it = _arguments.get_parameter_arguments().begin(); it != _arguments.get_parameter_arguments().end(); ++it) {
-			stream_values[it->first] = it->second[0];
-		}
-
-		for (std::vector<std::string>::const_iterator it = _arguments.get_solo_arguments().begin(); it != _arguments.get_solo_arguments().end(); ++it) {
-			stream_values[*it] = "1";
-		}
-
-		std::pair< std::map<std::string, int>, std::vector<std::string> > conflicts_missing = _parametrization.set_stream_values(stream_values, false);
-		if (!conflicts_missing.first.empty()) {
-			status += SlvStatus(SlvStatus::statusType::warning, "Multiple parameter correspondences in parametrization.");
-
-			for (std::map<std::string, int>::const_iterator it = conflicts_missing.first.begin(); it != conflicts_missing.first.end(); ++it) {
-
-				status.add_sub_status(SlvStatus(SlvStatus::statusType::warning, it->first + " : " + slv::string::to_string(it->second) + " correspondences"));
-
-			}
-
-		}
-
-		_arguments.filter(conflicts_missing.second);
-
-	}
-
-	return status;
-}
 
 /*! Class allowing to access the name of instance when the type is not known.
 * Usefull for templated parametrizations to redirect pure virtual get_name() to base parametrization's.
@@ -5546,6 +5308,7 @@ public:
 
 	/*! Get parameter name.*/
 	virtual const std::string& get_name() const = 0;
+	virtual const std::string& get_alias() const = 0;
 	/*! Get parameter description.*/
 	virtual const std::string& get_description() const = 0;
 	/*! Get parameter marker.*/
@@ -5771,6 +5534,211 @@ struct GlvWidgetMakerConnect<Tdata> {
 
 #undef Tdata
 
+#define Tdata std::string
+/*! GlvWidgetData specialization for type: std::string.*/
+template <>
+class GlvWidgetData<Tdata> : public QLineEdit {
+public:
+    GlvWidgetData(QWidget* _parent = 0);
+    GlvWidgetData(const Tdata& _value, QWidget* _parent = 0);
+    ~GlvWidgetData();
+    void set_editable(bool l_editable);
+    Tdata get_value() const;
+    void set_value(const Tdata& _value);
+};
+
+template <>
+struct GlvWidgetMakerConnect<Tdata> {
+    static void connect(GlvWidgetData<Tdata>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
+        QObject::connect(_widget, SIGNAL(textChanged(const QString&)), _widget_connector, SLOT(valueChanged_slot(const QString&)));
+    }
+};
+#undef Tdata
+
+#endif
+
+class SlvParametrization_base : virtual public SlvVirtualGetName, virtual public SlvIOS {
+
+protected:
+
+	/* Copy of the pointer of the parameters set in SlvParametrization**.
+	* Convenient to call virtual methods on all the parameters without neededing to known the parameter template type.*/
+	std::vector<const SlvParameter_base*> parameters;
+
+	/*! Whether param_init() method is called each time a parameter's value is modified.*/
+	bool l_param_init_auto;
+
+	/*! String used to separate the name of the parameter from its alias: name@alias.*/
+	glvm_staticVariable(const, std::string, alias_delimiter, "@");
+
+public:
+
+	/*! Separate static name of the class to parameters. ex: name@[param1,param2,param3].*/
+	glvm_staticVariable(const, char, separator, '@');
+
+protected:
+	SlvParametrization_base();
+public:
+	virtual ~SlvParametrization_base();
+
+	/*! Whether param_init() method is called each time a parameter's value is modified.
+	* Either by SlvParametrization**::operator=
+	* Or SlvParametrization**::set_***(value).
+	* Default is true.*/
+	bool is_param_init_auto() const;
+	/*! Set whether param_init() method is called each time a parameter's value is modified.
+	* Either by SlvParametrization**::operator=
+	* Or SlvParametrization**::set_***(value).
+	* Default is true.*/
+	void set_param_init_auto(bool _l_param_init_auto);
+
+	/*! Get string identification of the parametrization.*/
+	std::string get_id_str() const;
+	/*! Get a name of the instance plus string identification of the parametrization.*/
+	std::string get_full_name() const;
+
+	/*! Check parameters rules.*/
+	virtual SlvStatus check_parameters() const = 0;
+
+	/*! Check if the parametrization has rules or not.*/
+	bool has_rules() const;
+	/*! Returns false if the rules were not abided, meaning there was a modification of the parametrization.
+	* Returns true if rules are abided, meaning there was no modification of the parameterization.*/
+	virtual bool abide_rules() = 0;
+
+	/*! Process of parameters at construction.
+	* Usefull to call after a param_cast() assignment.
+	* When definition of param_init() is needed, must be reimplemented in the parametrization class inheriting from SlvParametrization.
+	* Ex: private parameter deriving from other ones.*/
+	virtual void param_init();
+
+	/*! Recursively find the parameters which name is \p _parameter_name.
+	* If \p _l_parametrizations is true, parameters which type is a parametrization can be counted.
+	* If false, they are excluded (but recursivity still applies).*/
+	std::vector<const SlvParameter_base*> find(std::string _parameter_name, bool _l_parametrizations) const;
+	/*! Recursively find the frist parameter which name is \p _parameter_name.
+	* If \p _l_parametrizations is true, parameters which type is a parametrization can be counted.
+	* If false, they are excluded (but recursivity still applies).
+	* Returns NULL if none found.*/
+	const SlvParameter_base* find_first(std::string _parameter_name, bool _l_parametrizations) const;
+
+	/*! Set parameter values using >> operator by providing parameter name and corresponding value as string.
+	* If \p _l_parametrizations is true, parameters which type is a parametrization can be assigned a value.
+	* Returns :
+	* First of pair: the conflicts corresponding to multiple parameters with the same name. Ie: assignment ambiguity.
+	* Second of pair : parameter names that could not be found in the parametrization.*/
+	std::pair< std::map<std::string, int>, std::vector<std::string> > set_stream_values(const std::map<std::string, std::string>& _stream_values, bool _l_parametrizations);
+
+private:
+	/*! Get a vector (one element per parameter) of strings. Each string is the slv::string::to_id_str of the parameter value.
+	* The marker value is used to discriminate which parameters are being converted to string.
+	* Setting the marker value of a parameter is possible in the macro classParameter.*/
+	virtual std::vector<std::string> get_vector_id_str(unsigned int _marker = SlvParameter_base::default_marker_value()) const = 0;
+};
+
+/*! Macro for type detection, for instance when using std::enable_if.
+* struct_name is the name of the structure to be used such as: std::enable_if<struct_name<T>::value>
+* Ttest_subtype is the type struct_name is supposed to contain such as: struct_name::Ttest_subtype */
+#define glvm_SlvIsType(struct_name, Ttest_subtype) \
+template <class Ttested_type>\
+struct struct_name  {\
+    template <class T>\
+    static char test(typename T::Ttest_subtype*);\
+    template <class T>\
+    static long test(T*);\
+    static const bool value = sizeof(test<Ttested_type>(0)) == 1;\
+};
+
+template <typename Tcontainer, typename = void>
+struct SlvIsContainer {
+    static constexpr bool value = false;
+};
+
+glvm_SlvIsType(SlvHasValueType, value_type)
+
+template <typename T, typename = void>
+struct SlvIsIterable : std::false_type {};
+
+template <typename T>
+struct SlvIsIterable<T, std::void_t<decltype(std::begin(std::declval<T&>())), decltype(std::end(std::declval<T&>()))> > : std::true_type {
+};
+
+template <typename Tcontainer>
+struct SlvIsContainer<Tcontainer, typename std::enable_if<SlvIsIterable<Tcontainer>::value && SlvHasValueType<Tcontainer>::value>::type> {
+    static constexpr bool value = true;
+};
+
+#ifndef GLOVE_DISABLE_QT
+
+class QVBoxLayout;
+class QPushButton;
+class QSpinBox;
+class QGroupBox;
+
+class GlvVectorWidget_base : public QWidget {
+
+    Q_OBJECT
+
+private:
+
+    QWidget* widget_items;
+    
+    QPushButton* button_resize;
+    QWidget* pushpop_widget;
+    QWidget* insert_widget;
+    QWidget* resize_widget;
+    
+    QGroupBox* vector_group_box;
+
+protected:
+
+    unsigned int Nelements_max;
+
+    QGroupBox* buttons_group_box;
+    QWidget* buttons_group_widget;
+    QVBoxLayout* layout_items;
+    QPushButton* button_push;
+    QPushButton* button_pop;
+    QPushButton* button_insert;
+    QSpinBox* resize_spinbox;
+    QSpinBox* insert_spinbox;
+
+    GlvVectorWidget_base(QWidget* _parent = 0);
+    virtual ~GlvVectorWidget_base();
+
+public:
+
+    void set_editable(bool _l_editable);
+    /*! Possibility to hide vector elements or not using checkable button. If checkable, possibility to set \p _group_name.*/
+    void set_checkable(bool _l_checkable, const QString _group_name = tr("vector"));
+    /*! Show/hide vector elements by collapsing the group box.*/
+    void set_checked(bool _l_checked);
+    /*! Define the maximum number of elements for the vector. Default is 999.*/
+    void set_Nelements_max(const unsigned int _N);
+    /*! Align vector items to top. Default is false.*/
+    void set_items_top_aligment(bool _l_top);
+
+protected slots:
+
+    virtual void valueChanged_slot() = 0;
+
+private slots:
+
+    virtual void pushValue() = 0;
+    virtual void popValue() = 0;
+    void insertValue();
+    virtual void insertValue(const unsigned int i) = 0;
+    void resizeVector();
+    virtual void resizeVector(const unsigned int i) = 0;
+
+    void show_vector_items(bool _l_show);
+    void show_vector_edit(bool _l_show);
+
+signals:
+    /*! Emitted when the value of the \p i -th widget is modified.*/
+    void valueChanged(int _index);
+};
+
 /*! First layer of template specialization possibility.
 * GlvWidgetMaker is also in charge of signals connection through GlvWidgetMakerConnect provided corresponding specialization is defined.
 * GlvWidgetData must have get_value(), set_value() and set_editable() methods.*/
@@ -5901,74 +5869,6 @@ typename GlvWidgetMaker<Tvalue>::Twidget* GlvWidget<Tvalue>::get_widget() {
 
     return dynamic_cast<typename GlvWidgetMaker<Tvalue>::Twidget*>(data_widget);
 }
-
-class QVBoxLayout;
-class QPushButton;
-class QSpinBox;
-class QGroupBox;
-
-class GlvVectorWidget_base : public QWidget {
-
-    Q_OBJECT
-
-private:
-
-    QWidget* widget_items;
-    
-    QPushButton* button_resize;
-    QWidget* pushpop_widget;
-    QWidget* insert_widget;
-    QWidget* resize_widget;
-    QSpinBox* insert_spinbox;
-    QGroupBox* vector_group_box;
-
-protected:
-
-    unsigned int Nelements_max;
-
-    QGroupBox* buttons_group_box;
-    QWidget* buttons_group_widget;
-    QVBoxLayout* layout_items;
-    QPushButton* button_push;
-    QPushButton* button_pop;
-    QPushButton* button_insert;
-    QSpinBox* resize_spinbox;
-
-    GlvVectorWidget_base(QWidget* _parent = 0);
-    virtual ~GlvVectorWidget_base();
-
-public:
-
-    void set_editable(bool _l_editable);
-    /*! Possibility to hide vector elements or not using checkable button. If checkable, possibility to set \p _group_name.*/
-    void set_checkable(bool _l_checkable, const QString _group_name = tr("vector"));
-    /*! Show/hide vector elements by collapsing the group box.*/
-    void set_checked(bool _l_checked);
-    /*! Define the maximum number of elements for the vector. Default is 999.*/
-    void set_Nelements_max(const unsigned int _N);
-    /*! Align vector items to top. Default is false.*/
-    void set_items_top_aligment(bool _l_top);
-
-protected slots:
-
-    virtual void valueChanged_slot() = 0;
-
-private slots:
-
-    virtual void pushValue() = 0;
-    virtual void popValue() = 0;
-    void insertValue();
-    virtual void insertValue(const unsigned int i) = 0;
-    void resizeVector();
-    virtual void resizeVector(const unsigned int i) = 0;
-
-    void show_vector_items(bool _l_show);
-    void show_vector_edit(bool _l_show);
-
-signals:
-    /*! Emitted when the value of the \p i -th widget is modified.*/
-    void valueChanged(int _index);
-};
 
 class QHBoxLayout;
 class QLabel;
@@ -6106,6 +6006,10 @@ protected:
     /*! Append text on a new line to widget tool tip.*/
     void append_tool_tip(const std::string& _string);
 
+private:
+    /*! Get the data widget. Is a GlvWidgetData in general.*/
+    QWidget* get_data_widget() const;
+
 };
 
 template <class Tdata>
@@ -6180,6 +6084,11 @@ void GlvDescribedWidget<Tdata>::append_tool_tip(const std::string& _string) {
         data_widget->setToolTip(string);
     }
 
+}
+
+template <class Tdata>
+QWidget* GlvDescribedWidget<Tdata>::get_data_widget() const {
+    return data_widget->get_data_widget();
 }
 
 #endif
@@ -6924,1282 +6833,6 @@ class struct_name {\
 public:\
     enum { value = sizeof(test<T>(0)) == sizeof(char) };\
 };
-
-/*! Macro for type detection, for instance when using std::enable_if.
-* struct_name is the name of the structure to be used such as: std::enable_if<struct_name<T>::value>
-* Ttest_subtype is the type struct_name is supposed to contain such as: struct_name::Ttest_subtype */
-#define glvm_SlvIsType(struct_name, Ttest_subtype) \
-template <class Ttested_type>\
-struct struct_name  {\
-    template <class T>\
-    static char test(typename T::Ttest_subtype*);\
-    template <class T>\
-    static long test(T*);\
-    static const bool value = sizeof(test<Ttested_type>(0)) == 1;\
-};
-
-template <typename Tcontainer, typename = void>
-struct SlvIsContainer {
-    static constexpr bool value = false;
-};
-
-glvm_SlvIsType(SlvHasValueType, value_type)
-
-template <typename T, typename = void>
-struct SlvIsIterable : std::false_type {};
-
-template <typename T>
-struct SlvIsIterable<T, std::void_t<decltype(std::begin(std::declval<T&>())), decltype(std::end(std::declval<T&>()))> > : std::true_type {
-};
-
-template <typename Tcontainer>
-struct SlvIsContainer<Tcontainer, typename std::enable_if<SlvIsIterable<Tcontainer>::value && SlvHasValueType<Tcontainer>::value>::type> {
-    static constexpr bool value = true;
-};
-
-#ifndef GLOVE_DISABLE_QT
-
-template <class T>
-class GlvWidget;
-template <class T>
-class GlvVectorWidget;
-
-/*! Item widget for GlvVectorWidget.*/
-template <class T>
-class GlvVectorWidgetItem : public GlvVectorWidgetItem_base {
-
-private:
-
-    /*! Widget of the data.*/
-    GlvWidget<T>* widget;
-    /*! Vector widget the item belongs to.*/
-    GlvVectorWidget<T>* parent;
-
-private:
-
-    /*! \p _value : Initialization value.
-    * \p _index : index in GlvVectorWidget.*
-    * \p _parent : Vector widget the item belongs to.*/
-    GlvVectorWidgetItem(const T& _value, const unsigned int _index, GlvVectorWidget<T>* _parent);
-    ~GlvVectorWidgetItem();
-
-public:
-    T get_value() const;
-    void set_value(const T _value);
-private:
-    GlvWidget<T>* get_widget() const;
-    void increment_index();
-    void decrement_index();
-    void update_label_index();
-
-    /*! Remove in GlvVectorWidget at index contained in the instance.*/
-    void remove();
-
-    friend class GlvVectorWidget<T>;
-
-};
-
-template <class T>
-GlvVectorWidgetItem<T>::GlvVectorWidgetItem(const T& _value, const unsigned int _index, GlvVectorWidget<T>* _parent) {
-
-    widget = new GlvWidget<T>(_value);
-    widget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    index = _index;
-    parent = _parent;
-
-    label_index = new QLabel;
-    update_label_index();
-    remove_button = new QPushButton(tr("x"));
-    remove_button->setFixedWidth(30);
-    QString info = QString(tr("Erase the element"));
-    remove_button->setWhatsThis(info);
-    remove_button->setToolTip(info);
-    layout->addWidget(label_index);
-    layout->addWidget(widget);
-    layout->addWidget(remove_button);
-
-    connect(remove_button, SIGNAL(clicked()), this, SLOT(remove()));
-    connect(widget, SIGNAL(valueChanged()), this, SIGNAL(valueChanged()));
-
-}
-
-template <class T>
-GlvVectorWidgetItem<T>::~GlvVectorWidgetItem() {
-
-}
-
-template <class T>
-T GlvVectorWidgetItem<T>::get_value() const {
-
-    return widget->get_value();
-
-}
-
-template <class T>
-void GlvVectorWidgetItem<T>::set_value(const T _value) {
-
-    widget->set_value(_value);
-
-}
-
-template <class T>
-GlvWidget<T>* GlvVectorWidgetItem<T>::get_widget() const {
-    return widget;
-}
-
-template <class T>
-void GlvVectorWidgetItem<T>::increment_index() {
-    index++;
-    update_label_index();
-}
-
-template <class T>
-void GlvVectorWidgetItem<T>::decrement_index() {
-    index--;
-    update_label_index();
-}
-
-template <class T>
-void GlvVectorWidgetItem<T>::update_label_index() {
-    label_index->setText(glv::toQString(index));
-}
-
-template <class T>
-void GlvVectorWidgetItem<T>::remove() {
-    parent->removeWidget(index);
-}
-
-#define _Tdata_ std::vector<T>
-
-class QVBoxLayout;
-template <class T>
-class GlvVectorWidgetItem;
-template <class Tvalue>
-class GlvWidget;
-
-/*! Widget to manage interface of std::vector.*/
-template <class T>
-class GlvVectorWidget : public GlvVectorWidget_base {
-
-protected:
-
-    std::vector<GlvVectorWidgetItem<T>*> widgets;
-
-public:
-
-    GlvVectorWidget(_Tdata_ _vector = _Tdata_(), QWidget* _parent = 0);
-    ~GlvVectorWidget();
-
-    /*! Set vector.*/
-    void set_value(const _Tdata_& _vector);
-    /*! Get vector.*/
-    _Tdata_ get_value() const;
-
-    void pushValue(T _value);
-    /*! Reimplementation of virtual method.*/
-    void pushValue();
-    void popValue();
-    /*! New value at index \p i.*/
-    void insertValue(const unsigned int i);
-    /*! Resize vector at size \p i.*/
-    void resizeVector(const unsigned int i);
-    /*! Get widget of index \p i.*/
-    GlvWidget<T>* operator[] (const unsigned int i);
-
-private:
-
-    void valueChanged_slot();
-    void removeWidget(const unsigned int i);
-
-    friend class GlvVectorWidgetItem<T>;
-};
-
-template <class T>
-GlvVectorWidget<T>::GlvVectorWidget(_Tdata_ _vector, QWidget* _parent) : GlvVectorWidget_base(_parent) {
-
-    set_value(_vector);
-
-}
-
-template <class T>
-GlvVectorWidget<T>::~GlvVectorWidget() {
-
-}
-
-template <class T>
-void GlvVectorWidget<T>::set_value(const _Tdata_& _vector) {
-
-    if (_vector.size() > Nelements_max) {
-        set_Nelements_max((int)_vector.size());
-    }
-
-    int N = (int)std::min(widgets.size(), _vector.size());
-
-    for (int i = 0; i < N; i++) {
-        widgets[i]->set_value(_vector[i]);
-    }
-
-    if (widgets.size() < _vector.size()) {
-        for (int i = N; i < _vector.size(); i++) {
-            pushValue(_vector[i]);
-        }
-    } else if (widgets.size() > _vector.size()) {
-        for (int i = N; i < widgets.size(); i++) {
-            layout_items->removeWidget(widgets[i]);
-            delete widgets[i];
-        }
-        widgets.resize(_vector.size());
-        resize_spinbox->setValue((int)widgets.size());
-        
-    }
-
-    if (_vector.empty()) {// If no vector item exists, then the vector is indicated as fully displayed for reading convenience
-        set_checked(true);
-    } else if (!QWidget::isVisible()) {// If a value is set before the widget is visible, and the vector widget is checkable, then the default display hides the vector items
-        set_checked(false);
-    }
-
-}
-
-template <class T>
-_Tdata_ GlvVectorWidget<T>::get_value() const {
-
-    _Tdata_ value(widgets.size());
-    for (int i = 0; i < widgets.size(); i++) {
-        value[i] = widgets[i]->get_value();
-    }
-    return value;
-
-}
-
-template <class T>
-void GlvVectorWidget<T>::pushValue(T _value) {
-
-    if (widgets.size() < Nelements_max) {
-
-        GlvVectorWidgetItem<T>* widget = new GlvVectorWidgetItem<T>(_value, (int)widgets.size(), this);
-        widgets.push_back(widget);
-        layout_items->insertWidget((int)widgets.size() - 1, widget);
-        connect(widget, SIGNAL(valueChanged()), this, SLOT(valueChanged_slot()));
-        button_pop->setEnabled(true);
-
-        if (widgets.size() == Nelements_max) {
-            button_push->setEnabled(false);
-            button_insert->setEnabled(false);
-        }
-
-        resize_spinbox->setValue((int)widgets.size());
-    }
-}
-
-template <class T>
-void GlvVectorWidget<T>::insertValue(const unsigned int i) {
-
-    if (widgets.size() < Nelements_max) {
-
-        unsigned int j = i;
-        if (j >= (unsigned int)widgets.size()) {
-            j = (unsigned int)widgets.size() - 1;
-        }
-        GlvVectorWidgetItem<T>* widget = new GlvVectorWidgetItem<T>(T(), j, this);
-        layout_items->insertWidget(j, widget);
-        widgets.insert(widgets.begin() + j, widget);
-        connect(widget->get_widget(), SIGNAL(valueChanged()), this, SLOT(valueChanged_slot()));
-        button_pop->setEnabled(true);
-
-        for (unsigned int k = j + 1; k < widgets.size(); k++) {
-            widgets[k]->increment_index();
-        }
-
-        if (widgets.size() == Nelements_max) {
-            button_push->setEnabled(false);
-            button_insert->setEnabled(false);
-            resize_spinbox->setValue((int)widgets.size());
-        }
-
-    }
-
-}
-
-template <class T>
-void GlvVectorWidget<T>::resizeVector(const unsigned int i) {
-
-    if (i != widgets.size()) {
-
-        _Tdata_ vector_ = get_value();
-        vector_.resize(std::min(i, Nelements_max));
-        set_value(vector_);
-
-        bool l_max = (widgets.size() == Nelements_max);
-        button_push->setEnabled(!l_max);
-        button_insert->setEnabled(!l_max);
-        resize_spinbox->setValue((int)widgets.size());
-    }
-
-    if (widgets.empty()) {
-        set_checked(true);// If no vector item exists, then the vector is indicated as fully displayed for reading convenience
-    }
-
-}
-
-template <class T>
-GlvWidget<T>* GlvVectorWidget<T>::operator[] (const unsigned int i) {
-    return widgets[i]->get_widget();
-}
-
-template <class T>
-void GlvVectorWidget<T>::pushValue() {
-
-    pushValue(T());
-
-}
-
-template <class T>
-void GlvVectorWidget<T>::popValue() {
-
-    if (!widgets.empty()) {
-        removeWidget((int)widgets.size() - 1);
-
-        if (widgets.size() < Nelements_max) {
-            button_push->setEnabled(true);
-            button_insert->setEnabled(true);
-        }
-
-        resize_spinbox->setValue((int)widgets.size());
-
-    }
-
-}
-
-template <class T>
-void GlvVectorWidget<T>::valueChanged_slot() {
-
-    GlvVectorWidgetItem<T>* item = dynamic_cast<GlvVectorWidgetItem<T>*>(QObject::sender());
-    if (item) {
-        emit valueChanged(item->index);
-    }
-
-}
-
-template <class T>
-void GlvVectorWidget<T>::removeWidget(const unsigned int i) {
-
-    if (!widgets.empty()) {
-
-        layout_items->removeWidget(widgets[i]);
-        delete widgets[i];
-        widgets.erase(widgets.begin() + i);
-
-        for (unsigned int j = i; j < widgets.size(); j++) {
-            widgets[j]->decrement_index();
-        }
-    }
-
-    if (widgets.empty()) {
-        button_pop->setEnabled(false);
-        set_checked(true);// If no vector item exists, then the vector is indicated as fully displayed for reading convenience
-    }
-
-}
-
-#undef _Tdata_
-
-#define _Tdata_ std::array<T, N>
-
-/*! Widget to manage interface of std::vector.*/
-template <class T, size_t N>
-class GlvArrayWidget : public GlvVectorWidget<T> {
-
-public:
-
-    GlvArrayWidget(_Tdata_ _array = _Tdata_(), QWidget* _parent = 0);
-    ~GlvArrayWidget();
-
-    /*! Set vector.*/
-    void set_value(const _Tdata_& _array);
-    /*! Get vector.*/
-    _Tdata_ get_value() const;
-
-private:
-    using GlvVectorWidget<T>::pushValue;
-    using GlvVectorWidget<T>::popValue;
-    using GlvVectorWidget<T>::insertValue;
-
-};
-
-template <class T, size_t N>
-GlvArrayWidget<T, N>::GlvArrayWidget(_Tdata_ _array, QWidget* _parent) : GlvVectorWidget<T>({}, _parent) {
-
-    this->buttons_group_widget->hide();
-
-    for (int i = 0; i < N; i++) {
-        pushValue();
-        this->widgets[i]->show_remove_button(false);
-    }
-
-    set_value(_array);
-
-}
-
-template <class T, size_t N>
-GlvArrayWidget<T, N>::~GlvArrayWidget() {
-
-}
-
-template <class T, size_t N>
-void GlvArrayWidget<T, N>::set_value(const _Tdata_& _array) {
-
-    for (int i = 0; i < N; i++) {
-        this->widgets[i]->set_value(_array[i]);
-    }
-
-}
-
-template <class T, size_t N>
-_Tdata_ GlvArrayWidget<T, N>::get_value() const {
-
-    _Tdata_ value;
-    for (int i = 0; i < N; i++) {
-        value[i] = this->widgets[i]->get_value();
-    }
-    return value;
-
-}
-
-#undef _Tdata_
-
-#endif
-
-template <typename Tcontainer, typename = void>
-struct SlvIsMap {
-    static constexpr bool value = false;
-};
-
-template <class Tkey, class Tvalue>
-struct SlvIsMap< std::map<Tkey, Tvalue> > {
-    static constexpr bool value = true;
-};
-
-template <class Tkey, class Tvalue>
-struct SlvIsMap< std::unordered_map<Tkey, Tvalue> > {
-    static constexpr bool value = true;
-};
-
-#ifndef GLOVE_DISABLE_QT
-
-// Do not enable if value_type is a container. GlvWidgetData_spec_std_container_container.h is used instead
-#define Tenable typename std::enable_if<!SlvIsContainer<T>::value || SlvIsMap<T>::value || std::is_same<T, std::string>::value>::type
-
-#define Tdata std::array<T, N>
-/*! GlvWidgetData specialization for template type: std::vector.*/
-template <class T, size_t N>
-class GlvWidgetData<Tdata, Tenable> : public GlvArrayWidget<T, N> {
-
-public:
-    GlvWidgetData(Tdata _vector = Tdata(), QWidget* _parent = 0) :GlvArrayWidget<T, N>(_vector, _parent) {
-        this->set_checkable(true, QObject::tr("array"));
-        this->set_checked(false);
-        this->set_items_top_aligment(true);
-    }
-    ~GlvWidgetData() {}
-
-};
-
-template <class T, size_t N>
-struct GlvWidgetMakerConnect<Tdata, Tenable> {
-    static void connect(GlvWidgetData<Tdata>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
-        QObject::connect(_widget, SIGNAL(valueChanged(int)), _widget_connector, SLOT(valueChanged_slot(int)));
-    }
-};
-
-#undef Tdata
-#undef Tenable
-
-#if OPTION_WIDGET_DATA_CONTAINER_TABLE==1
-// Do not enable if value_type is a container. GlvWidgetData_spec_std_container_container.h is used instead
-#define Tenable typename std::enable_if<!SlvIsContainer<T>::value || SlvIsMap<T>::value || std::is_same<T, std::string>::value>::type
-#else
-#define Tenable typename std::enable_if<true>::type
-#endif
-
-#define Tdata std::vector<T>
-/*! GlvWidgetData specialization for template type: std::vector.*/
-template <class T>
-class GlvWidgetData<Tdata, Tenable> : public GlvVectorWidget<T> {
-
-public:
-    GlvWidgetData(Tdata _vector = Tdata(), QWidget* _parent = 0) :GlvVectorWidget<T>(_vector, _parent) {
-        this->set_checkable(true);
-        if (!_vector.empty()) {
-            this->set_checked(false);
-        } else {
-            // If empty, leave checked so that it's easier to see that the vector widget is empty
-        }
-        this->set_items_top_aligment(true);
-    }
-    ~GlvWidgetData() {}
-
-};
-
-template <class T>
-struct GlvWidgetMakerConnect<Tdata, Tenable> {
-    static void connect(GlvWidgetData<Tdata>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
-        QObject::connect(_widget, SIGNAL(valueChanged(int)), _widget_connector, SLOT(valueChanged_slot(int)));
-    }
-};
-
-#undef Tdata
-#undef Tenable
-
-/*! Widget for std::pair.*/
-class GlvPairWidget_base : public QWidget {
-    Q_OBJECT
-protected:
-    GlvPairWidget_base(QWidget* _parent = 0) : QWidget(_parent) {}
-    virtual ~GlvPairWidget_base() {}
-public:
-    void set_editable(bool l_editable) {
-        QWidget::setEnabled(l_editable);
-    }
-signals:
-    /*! Emitted when first of pair is modified.*/
-    void valueChanged_first();
-    /*! Emitted when second of pair is modified.*/
-    void valueChanged_second();
-};
-
-template <class T>
-class GlvWidget;
-
-#define _Tdata_ std::pair<T1, T2>
-
-/*! Widget for std::pair.*/
-template <class T1, class T2>
-class GlvPairWidget : public GlvPairWidget_base {
-
-private:
-
-    GlvWidget<T1>* subwidget1;
-    GlvWidget<T2>* subwidget2;
-
-public:
-
-    GlvPairWidget(_Tdata_ _pair = _Tdata_(), QWidget* _parent = 0);
-    ~GlvPairWidget();
-
-    void set_pair(const _Tdata_ _pair);
-    _Tdata_ get_pair() const;
-
-};
-
-template <class T1, class T2>
-GlvPairWidget<T1, T2>::GlvPairWidget(_Tdata_ _pair, QWidget* _parent) : GlvPairWidget_base(_parent) {
-
-    QHBoxLayout* layout = new QHBoxLayout;
-    setLayout(layout);
-
-    layout->setContentsMargins(0, 0, 0, 0);
-
-    bool l_editable = true;
-    subwidget1 = new GlvWidget<T1>(_pair.first, l_editable, _parent);
-    connect(subwidget1, SIGNAL(valueChanged()), this, SIGNAL(valueChanged_first()));
-    layout->addWidget(subwidget1);
-    subwidget2 = new GlvWidget<T2>(_pair.second, l_editable, _parent);
-    connect(subwidget2, SIGNAL(valueChanged()), this, SIGNAL(valueChanged_second()));
-    layout->addWidget(subwidget2);
-
-}
-
-template <class T1, class T2>
-GlvPairWidget<T1, T2>::~GlvPairWidget() {
-
-}
-
-template <class T1, class T2>
-void GlvPairWidget<T1, T2>::set_pair(const _Tdata_ _pair) {
-
-    subwidget1->set_value(_pair.first);
-    subwidget2->set_value(_pair.second);
-
-}
-
-template <class T1, class T2>
-_Tdata_ GlvPairWidget<T1, T2>::get_pair() const {
-
-    _Tdata_ value;
-    value.first = subwidget1->get_value();
-    value.second = subwidget2->get_value();
-    return value;
-
-}
-
-#undef _Tdata_
-
-#define Tdata std::pair<T1, T2>
-/*! GlvWidgetData specialization for template type: std::pair.*/
-template <class T1, class T2>
-class GlvWidgetData<Tdata> : public GlvPairWidget<T1, T2> {
-
-public:
-    GlvWidgetData(Tdata _pair = Tdata(), QWidget* _parent = 0) :GlvPairWidget<T1, T2>(_pair, _parent) {}
-    ~GlvWidgetData() {}
-
-    Tdata get_value() const {
-        return GlvPairWidget<T1, T2>::get_pair();
-    }
-    void set_value(const Tdata& _value) {
-        return GlvPairWidget<T1, T2>::set_pair(_value);
-    }
-
-};
-
-template <class T1, class T2>
-struct GlvWidgetMakerConnect<Tdata> {
-    static void connect(GlvWidgetData<Tdata>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
-        QObject::connect(_widget, SIGNAL(valueChanged_first()), _widget_connector, SLOT(valueChanged_slot()));
-        QObject::connect(_widget, SIGNAL(valueChanged_second()), _widget_connector, SLOT(valueChanged_slot()));
-    }
-};
-
-#undef Tdata
-
-class QVBoxLayout;
-class QHBoxLayout;
-class QPushButton;
-class QGroupBox;
-
-class GlvMapWidget_base : public QWidget {
-
-    Q_OBJECT
-
-private:
-
-    QWidget* widget_items;
-    QPushButton* button_insert;
-    QWidget* insert_widget;
-    QGroupBox* map_widget;
-
-protected:
-
-    QGroupBox* buttons_widget;
-    QVBoxLayout* layout_items;
-    QHBoxLayout* insert_layout;
-
-    QWidget* insert_key_widget;
-
-    GlvMapWidget_base(QWidget* _parent = 0);
-    virtual ~GlvMapWidget_base();
-
-public:
-
-    void set_editable(bool _l_editable);
-    /*! Possibility to hide vector elements or not using checkable button.*/
-    void set_checkable(bool _l_checkable);
-    /*! Show/hide vector elements by collapsing the group box.*/
-    void set_checked(bool _l_checked);
-    /*! Align vector items to top. Default is false.*/
-    void set_items_top_aligment(bool _l_top);
-
-protected :
-
-    /*! To avoid to include QGroupBox in GlvMapWidget*/
-    void edit_set_checked(bool l_check);
-
-protected slots:
-
-    virtual void valueChanged_slot() = 0;
-
-private slots:
-
-    virtual void insertValue() = 0;
-    void show_map_items(bool _l_show);
-    void show_map_edit(bool _l_show);
-    
-signals:
-    /*! Emitted when the value of the \p index-th widget is modified.*/
-    void valueChanged(int _index);
-};
-
-class QHBoxLayout;
-class QLabel;
-class QPushButton;
-
-/*! Item widget for GlvMapWidget.*/
-class GlvMapWidgetItem_base : public QWidget {
-
-    Q_OBJECT
-
-protected:
-
-    QHBoxLayout* layout;
-    /*! Index of the widget in its GlvMapWidget.*/
-    unsigned int index;
-    QPushButton* remove_button;
-
-    GlvMapWidgetItem_base();
-    virtual ~GlvMapWidgetItem_base();
-
-protected slots:
-
-    virtual void remove() = 0;
-
-signals:
-    void valueChanged();
-};
-
-template <class T>
-class GlvWidget;
-template <class Tkey, class Tvalue, class Tcompare>
-class GlvMapWidget;
-
-/*! Item widget for GlvMapWidget.*/
-template <class Tkey, class Tvalue, class Tcompare>
-class GlvMapWidgetItem : public GlvMapWidgetItem_base {
-
-private:
-
-    /*! Widget of the key.*/
-    GlvWidget<Tkey>* key_widget;
-    /*! Widget of the data.*/
-    GlvWidget<Tvalue>* value_widget;
-    /*! Map widget the item belongs to.*/
-    GlvMapWidget<Tkey, Tvalue, Tcompare>* parent;
-
-private:
-
-    /*! \p _key : Key.
-    * \p _value : Initialization value.
-    * \p _index : index in GlvMapWidget.*
-    * \p _parent : Vector widget the item belongs to.*/
-    GlvMapWidgetItem(const Tkey& _key, const Tvalue& _value, const unsigned int _index, GlvMapWidget<Tkey, Tvalue, Tcompare>* _parent);
-    ~GlvMapWidgetItem();
-
-    Tkey get_key() const;
-    void set_key(const Tkey _key);
-    Tvalue get_value() const;
-    void set_value(const Tvalue _value);
-    GlvWidget<Tkey>* get_key_widget() const;
-    GlvWidget<Tvalue>* get_value_widget() const;
-    void increment_index();
-    void decrement_index();
-
-    /*! Remove in GlvMapWidget at index contained in the instance.*/
-    void remove();
-
-    friend class GlvMapWidget<Tkey, Tvalue, Tcompare>;
-};
-
-template <class Tkey, class Tvalue, class Tcompare>
-GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::GlvMapWidgetItem(const Tkey& _key, const Tvalue& _value, const unsigned int _index, GlvMapWidget<Tkey, Tvalue, Tcompare>* _parent) {
-
-    key_widget = new GlvWidget<Tkey>(_key);
-    key_widget->setSizePolicy(QSizePolicy::Policy::Fixed, QSizePolicy::Policy::Preferred);
-    value_widget = new GlvWidget<Tvalue>(_value);
-    value_widget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    index = _index;
-    parent = _parent;
-
-    remove_button = new QPushButton(tr("x"));
-    remove_button->setFixedWidth(30);
-    QString info = QString(tr("Erase the element"));
-    remove_button->setWhatsThis(info);
-    remove_button->setToolTip(info);
-    layout->addWidget(key_widget);
-    layout->addWidget(value_widget);
-    layout->addWidget(remove_button);
-
-    connect(remove_button, SIGNAL(clicked()), this, SLOT(remove()));
-    connect(value_widget, SIGNAL(valueChanged()), this, SIGNAL(valueChanged()));
-
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::~GlvMapWidgetItem() {
-
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-Tkey GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::get_key() const {
-
-    return key_widget->get_value();
-
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-void GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::set_key(const Tkey _key) {
-
-    key_widget->set_value(_key);
-
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-Tvalue GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::get_value() const {
-
-    return value_widget->get_value();
-
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-void GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::set_value(const Tvalue _value) {
-
-    value_widget->set_value(_value);
-
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-GlvWidget<Tkey>* GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::get_key_widget() const {
-    return key_widget;
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-GlvWidget<Tvalue>* GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::get_value_widget() const {
-    return value_widget;
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-void GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::increment_index() {
-    index++;
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-void GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::decrement_index() {
-    index--;
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-void GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::remove() {
-    parent->removeWidget(index);
-}
-
-#define _Tdata_ std::map<Tkey, Tvalue>
-
-class QVBoxLayout;
-template <class Tkey, class Tvalue, class Tcompare>
-class GlvMapWidgetItem;
-template <class Tvalue>
-class GlvWidget;
-
-/*! Widget to manage interface of std::map.*/
-template <class Tkey, class Tvalue, class Tcompare = std::less<Tkey> >
-class GlvMapWidget : public GlvMapWidget_base {
-
-private:
-
-    std::vector<GlvMapWidgetItem<Tkey, Tvalue, Tcompare>*> widgets;
-
-    Tcompare compare_function;
-
-    bool l_editable_key;
-
-public:
-
-    GlvMapWidget(_Tdata_ _map = _Tdata_(), QWidget* _parent = 0);
-    ~GlvMapWidget();
-
-    /*! Set map.*/
-    void set_value(const _Tdata_& _map);
-    /*! Get map.*/
-    _Tdata_ get_value() const;
-
-    /*! Whether key is editable or not (default: false).*/
-    void set_key_editable(bool _l_editable);
-
-    /*! New value at current key.*/
-    void insertValue();
-    /*! Return true if inserted, false otherwise (key already exsists).*/
-    bool insertValue(const Tkey& _key, const Tvalue& _value);
-
-    /*! Get widget of key \p _key.*/
-    GlvWidget<Tvalue>* operator[] (const Tkey _key);
-
-private:
-
-    void insertValue(const int _i, const Tkey& _key, const Tvalue& _value);
-
-    void valueChanged_slot();
-    typename std::vector<GlvMapWidgetItem<Tkey, Tvalue, Tcompare>*>::const_iterator removeWidget(const unsigned int i);
-    /*! Return index of the corresponding key. Second of pair for existence of the key (true).*/
-    std::pair<int, bool> find(const Tkey& _key) const;
-
-    friend class GlvMapWidgetItem<Tkey, Tvalue, Tcompare>;
-};
-
-template <class Tkey, class Tvalue, class Tcompare>
-GlvMapWidget<Tkey, Tvalue, Tcompare>::GlvMapWidget(_Tdata_ _map, QWidget* _parent) : GlvMapWidget_base(_parent) {
-
-    /*! Widget of the key for insert.*/
-    insert_key_widget = new GlvWidget<Tkey>();
-    QString info = QString(tr("Key"));
-    insert_key_widget->setWhatsThis(info);
-    insert_key_widget->setToolTip(info);
-    insert_key_widget->setSizePolicy(QSizePolicy::Policy::Fixed, QSizePolicy::Policy::Preferred);
-    this->insert_layout->addWidget(insert_key_widget);
-    l_editable_key = false;
-    set_value(_map);
-
-    edit_set_checked(false);
-
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-GlvMapWidget<Tkey, Tvalue, Tcompare>::~GlvMapWidget() {
-
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-void GlvMapWidget<Tkey, Tvalue, Tcompare>::set_value(const _Tdata_& _map) {
-
-    compare_function = _map.key_comp();
-
-    for (typename std::vector<GlvMapWidgetItem<Tkey, Tvalue, Tcompare>*>::const_iterator it = widgets.begin(); it != widgets.end();) {
-
-        if (_map.find((*it)->get_key_widget()->get_value()) == _map.end()) {
-            it = removeWidget((*it)->index);
-        } else {
-            ++it;
-        }
-
-    }
-
-    std::pair<int, bool> index;
-    for (typename _Tdata_::const_iterator it = _map.begin(); it != _map.end(); ++it) {
-
-        index = find(it->first);
-        if (index.second) {
-            widgets[index.first]->get_value_widget()->set_value(it->second);
-        } else {
-            insertValue(index.first, it->first, it->second);
-        }
-
-    }
-
-    if (_map.empty()) {// If no map item exists, then the map is indicated as fully displayed for reading convenience
-        set_checked(true);
-    } else if (!QWidget::isVisible()) {// If a value is set before the widget is visible, and the map widget is checkable, then the default display hides the map items
-        set_checked(false);
-    }
-
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-_Tdata_ GlvMapWidget<Tkey, Tvalue, Tcompare>::get_value() const {
-
-    _Tdata_ value;
-    for (int i = 0; i < widgets.size(); i++) {
-        value[widgets[i]->get_key()] = widgets[i]->get_value();
-    }
-    return value;
-
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-void GlvMapWidget<Tkey, Tvalue, Tcompare>::set_key_editable(bool _l_editable) {
-
-    l_editable_key = _l_editable;
-
-    for (int i = 0; i < widgets.size(); i++) {
-        widgets[i]->get_key_widget()->set_editable(l_editable_key);
-    }
-
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-void GlvMapWidget<Tkey, Tvalue, Tcompare>::insertValue() {
-
-    Tkey key = static_cast<GlvWidget<Tkey>*>(insert_key_widget)->get_value();
-
-    insertValue(key, Tvalue());
-
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-bool GlvMapWidget<Tkey, Tvalue, Tcompare>::insertValue(const Tkey& _key, const Tvalue& _value) {
-
-    std::pair<int, bool> index = find(_key);
-
-    if (!index.second) {
-        insertValue(index.first, _key, _value);
-        return true;
-    } else {
-        return false;
-    }
-
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-void GlvMapWidget<Tkey, Tvalue, Tcompare>::insertValue(const int _i, const Tkey& _key, const Tvalue& _value) {
-
-    GlvMapWidgetItem<Tkey, Tvalue, Tcompare>* widget = new GlvMapWidgetItem<Tkey, Tvalue, Tcompare>(_key, _value, _i, this);
-    widget->get_key_widget()->set_editable(l_editable_key);
-    layout_items->insertWidget(_i, widget);
-    widgets.insert(widgets.begin() + _i, widget);
-    connect(widget, SIGNAL(valueChanged()), this, SLOT(valueChanged_slot()));
-
-    for (unsigned int k = _i + 1; k < widgets.size(); k++) {
-        widgets[k]->increment_index();
-    }
-
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-GlvWidget<Tvalue>* GlvMapWidget<Tkey, Tvalue, Tcompare>::operator[] (const Tkey _key) {
-
-    std::pair<int, bool> index = find(_key);
-
-    if (index.second) {
-        return (*this)[index.first];
-    } else {
-        return NULL;
-    }
-
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-void GlvMapWidget<Tkey, Tvalue, Tcompare>::valueChanged_slot() {
-
-    GlvMapWidgetItem<Tkey, Tvalue, Tcompare>* item = dynamic_cast<GlvMapWidgetItem<Tkey, Tvalue, Tcompare>*>(QObject::sender());
-    if (item) {
-        emit valueChanged(item->index);
-    }
-
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-typename std::vector<GlvMapWidgetItem<Tkey, Tvalue, Tcompare>*>::const_iterator GlvMapWidget<Tkey, Tvalue, Tcompare>::removeWidget(const unsigned int i) {
-
-    typename std::vector<GlvMapWidgetItem<Tkey, Tvalue, Tcompare>*>::const_iterator it;
-
-    if (!widgets.empty()) {
-
-        layout_items->removeWidget(widgets[i]);
-        delete widgets[i];
-        it = widgets.erase(widgets.begin() + i);
-
-        for (unsigned int j = i; j < widgets.size(); j++) {
-            widgets[j]->decrement_index();
-        }
-    } else {
-        it = widgets.end();
-    }
-
-    if (widgets.empty()) {
-        set_checked(true);// If no map item exists, then the map is indicated as fully displayed for reading convenience
-    }
-
-    return it;
-}
-
-template <class Tkey, class Tvalue, class Tcompare>
-std::pair<int, bool> GlvMapWidget<Tkey, Tvalue, Tcompare>::find(const Tkey& _key) const {
-
-    std::pair<int, bool> result(0, false);
-
-    bool l_found = false;
-    for (typename std::vector<GlvMapWidgetItem<Tkey, Tvalue, Tcompare>*>::const_iterator it = widgets.begin(); it != widgets.end() && !l_found; ++it, result.first++) {
-        l_found = !compare_function((*it)->get_key_widget()->get_value(), _key);
-        if (l_found) {
-            result.second = ((*it)->get_key_widget()->get_value() == _key);
-        }
-    }
-
-    if (l_found) result.first--;
-
-    return result;
-
-}
-
-#undef _Tdata_
-
-#define Tdata std::map<Tkey, Tvalue>
-/*! GlvWidgetData specialization for template type: std::map.*/
-template <class Tkey, class Tvalue>
-class GlvWidgetData<Tdata> : public GlvMapWidget<Tkey, Tvalue> {
-
-public:
-    GlvWidgetData(Tdata _map = Tdata(), QWidget* _parent = 0) :GlvMapWidget<Tkey, Tvalue>(_map, _parent) {
-        this->set_checkable(true);
-        if (!_map.empty()) {
-            this->set_checked(false);
-        } else {
-            // If empty, leave checked so that it's easier to see that the vector widget is empty
-        }
-        this->set_items_top_aligment(true);
-    }
-    ~GlvWidgetData() {}
-
-};
-
-template <class Tkey, class Tvalue>
-struct GlvWidgetMakerConnect<Tdata> {
-    static void connect(GlvWidgetData<Tdata>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
-        QObject::connect(_widget, SIGNAL(valueChanged(int)), _widget_connector, SLOT(valueChanged_slot(int)));
-    }
-};
-
-#undef Tdata
-
-class GlvEnumWidget_base : public QComboBox {
-protected:
-    GlvEnumWidget_base(QWidget* _parent = 0) : QComboBox(_parent) {}
-    virtual ~GlvEnumWidget_base() {}
-public:
-    void set_editable(bool l_editable) {
-        QComboBox::setEnabled(l_editable);
-    }
-};
-
-template <class T, typename = void>
-class GlvEnumWidget;
-
-/*! Widget managing an enum type.
-* The enum must be created using the macro: glvm_SlvEnum. See sample001 for example.*/
-template <class Tenum>
-class GlvEnumWidget<Tenum, typename std::enable_if<std::is_enum<Tenum>::value>::type> : public GlvEnumWidget_base {
-
-public:
-
-    GlvEnumWidget(Tenum _enum = Tenum(), QWidget* _parent = 0);
-    ~GlvEnumWidget();
-
-    /*! Set the enum value.*/
-    void set_value(const Tenum _enum);
-    /*! Get the enum value.*/
-    Tenum get_value() const;
-
-};
-
-template <class Tenum>
-GlvEnumWidget<Tenum, typename std::enable_if<std::is_enum<Tenum>::value>::type>::GlvEnumWidget(Tenum _enum, QWidget* _parent) : GlvEnumWidget_base(_parent) {
-
-    for (unsigned int i = 0; i < SlvEnum<Tenum>::size(); i++) {
-        QString enum_name = glv::toQString(SlvEnum<Tenum>::get_name(i));
-        QComboBox::addItem(enum_name);
-    }
-    set_value(_enum);
-
-}
-
-template <class Tenum>
-GlvEnumWidget<Tenum, typename std::enable_if<std::is_enum<Tenum>::value>::type>::~GlvEnumWidget() {
-
-}
-
-template <class Tenum>
-void GlvEnumWidget<Tenum, typename std::enable_if<std::is_enum<Tenum>::value>::type>::set_value(const Tenum _enum) {
-
-    QComboBox::setCurrentIndex(SlvEnum<Tenum>::enum_positions().at(_enum));
-
-}
-
-template <class Tenum>
-Tenum GlvEnumWidget<Tenum, typename std::enable_if<std::is_enum<Tenum>::value>::type>::get_value() const {
-
-    return SlvEnum<Tenum>::enum_positions_inv()[QComboBox::currentIndex()];
-
-}
-
-/*! GlvWidgetData for enum type.*/
-template <class Tdata>
-class GlvWidgetData<Tdata, typename std::enable_if<std::is_enum<Tdata>::value>::type> : public GlvEnumWidget<Tdata> {
-
-public:
-    GlvWidgetData(Tdata _enum = Tdata(), QWidget* _parent = 0) :GlvEnumWidget<Tdata>(_enum, _parent) {}
-    ~GlvWidgetData() {}
-
-};
-
-template <class Tdata>
-struct GlvWidgetMakerConnect<Tdata, typename std::enable_if<std::is_enum<Tdata>::value>::type> {
-    static void connect(GlvWidgetData<Tdata>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
-        QObject::connect(_widget, SIGNAL(currentIndexChanged(int)), _widget_connector, SLOT(valueChanged_slot(int)));
-    }
-};
-
-class QLineEdit;
-class QPushButton;
-class QLabel;
-class QHBoxLayout;
-
-/*! Widget for selecting a directory.*/
-class GlvOpenDirectory : public QWidget {
-
-    Q_OBJECT
-
-private:
-
-    QLineEdit* line_edit;
-    QPushButton* push_button;
-    QLabel* status;
-    /*! Whether a valid directory has been selected or not.*/
-    bool l_ready;
-
-public:
-
-    /*! \p _directory : default directory.*/
-    GlvOpenDirectory(SlvDirectory _directory, QWidget* _parent = 0);
-    /*! \p _default : default directory path.*/
-    GlvOpenDirectory(QString _default = "", QWidget* _parent = 0);
-    ~GlvOpenDirectory();
-
-    /*! Return directory item. Check if is_ready() before using returned value.*/
-    SlvDirectory get_directory() const;
-
-    /*! Whether a valid directory has been selected or not.*/
-    bool is_ready() const;
-    /*! Makes line edit read-only or not. Shows/hides the open directory button.*/
-    void set_editable(bool l_editable);
-
-private:
-
-    /*! Check if directory is valid.*/
-    void update_readiness();
-
-public slots:
-    /*! Opens QFileDialog to select a directory.*/
-    void getExistingDirectory();
-    /*! Set directory item by editing QLineEdit. If directory is valid, sets instance as ready.*/
-    void set_directory(const SlvDirectory& _directory);
-
-private slots:
-
-    void directory_changed_slot(const QString& _directory_path);
-
-signals:
-
-    /*! Emitted when QLineEdit changes.*/
-    void directory_changed(const QString& _directory_path);
-
-};
-
-#define Tdata SlvDirectory
-
-/*! GlvWidgetData for type SlvDirectory.*/
-template <>
-class GlvWidgetData<Tdata> : public GlvOpenDirectory {
-
-public:
-	GlvWidgetData(Tdata _file = Tdata(), QWidget* _parent = 0);
-	~GlvWidgetData();
-
-	Tdata get_value() const {
-		return GlvOpenDirectory::get_directory();
-	}
-	void set_value(const Tdata& _value) {
-		return GlvOpenDirectory::set_directory(_value);
-	}
-
-};
-
-template <>
-struct GlvWidgetMakerConnect<Tdata> {
-	static void connect(GlvWidgetData<Tdata>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
-		QObject::connect(_widget, SIGNAL(directory_changed(const QString&)), _widget_connector, SLOT(valueChanged_slot(const QString&)));
-	}
-};
-
-#undef Tdata
-
-#endif
 
 /*! std::enable_if for SlvParametrization. Use : std::enable_if<SlvIsParametrization<T>::value>
 * Alternative: std::enable_if<std::is_base_of<SlvParametrization_base, Tparametrization>::value>*/
@@ -9281,80 +7914,568 @@ bool slv::parse(const std::string& _string, std::map<Tkey, Tvalue>& _map) {
     return l_parsing_ok;
 }
 
-class SlvParametrization_base : virtual public SlvVirtualGetName, virtual public SlvIOS {
+// Inspired from https://stackoverflow.com/questions/11632219/c-preprocessor-macro-specialisation-based-on-an-argument
 
-protected:
+#define MACSPEC_CAT(a, ...) MACSPEC_PRIMITIVE_CAT(a, __VA_ARGS__)
+#define MACSPEC_PRIMITIVE_CAT(a, ...) a ## __VA_ARGS__
 
-	/* Copy of the pointer of the parameters set in SlvParametrization**.
-	* Convenient to call virtual methods on all the parameters without neededing to known the parameter template type.*/
-	std::vector<const SlvParameter_base*> parameters;
+#define MACSPEC_IIF(c) MACSPEC_PRIMITIVE_CAT(MACSPEC_IIF_, c)
+#define MACSPEC_IIF_0(t, ...) __VA_ARGS__
+#define MACSPEC_IIF_1(t, ...) t
 
-	/*! Whether param_init() method is called each time a parameter's value is modified.*/
-	bool l_param_init_auto;
+#define MACSPEC_COMPL(b) MACSPEC_PRIMITIVE_CAT(MACSPEC_COMPL_, b)
+#define MACSPEC_COMPL_0 1
+#define MACSPEC_COMPL_1 0
 
-public:
+#define MACSPEC_BITAND(x) MACSPEC_PRIMITIVE_CAT(MACSPEC_BITAND_, x)
+#define MACSPEC_BITAND_0(y) 0
+#define MACSPEC_BITAND_1(y) y
 
-	/*! Separate static name of the class to parameters. ex: name@[param1,param2,param3].*/
-	glvm_staticVariable(const, char, separator, '@');
+#define MACSPEC_MSVC_VA_ARGS_WORKAROUND(define, args) define args
+#define MACSPEC_CHECK(...) MACSPEC_MSVC_VA_ARGS_WORKAROUND(MACSPEC_CHECK_N, (__VA_ARGS__, 0))
+#define MACSPEC_CHECK_N(x, n, ...) n
+#define MACSPEC_PROBE(x) x, 1,
 
-protected:
-	SlvParametrization_base();
-public:
-	virtual ~SlvParametrization_base();
+#define MACSPEC_IS_PAREN(x) MACSPEC_CHECK(MACSPEC_IS_PAREN_PROBE x)
+#define MACSPEC_IS_PAREN_PROBE(...) MACSPEC_PROBE(~)
 
-	/*! Whether param_init() method is called each time a parameter's value is modified.
-	* Either by SlvParametrization**::operator=
-	* Or SlvParametrization**::set_***(value).
-	* Default is true.*/
-	bool is_param_init_auto() const;
-	/*! Set whether param_init() method is called each time a parameter's value is modified.
-	* Either by SlvParametrization**::operator=
-	* Or SlvParametrization**::set_***(value).
-	* Default is true.*/
-	void set_param_init_auto(bool _l_param_init_auto);
+#define MACSPEC_COMPARE(a, b) MACSPEC_PRIMITIVE_COMPARE(a, b)
+#define MACSPEC_PRIMITIVE_COMPARE(a, b)\
+    MACSPEC_IIF(\
+        MACSPEC_BITAND\
+            (MACSPEC_IS_PAREN(MACSPEC_COMPARE_ ## a(())))\
+            (MACSPEC_IS_PAREN(MACSPEC_COMPARE_ ## b(())))\
+    )( \
+        MACSPEC_COMPL(MACSPEC_IS_PAREN(\
+            MACSPEC_COMPARE_ ## a(\
+                MACSPEC_COMPARE_ ## b\
+            )(())\
+        )),\
+        0\
+    )
 
-	/*! Get string identification of the parametrization.*/
-	std::string get_id_str() const;
-	/*! Get a name of the instance plus string identification of the parametrization.*/
-	std::string get_full_name() const;
+class SlvParametrization_base;
 
-	/*! Check parameters rules.*/
-	virtual SlvStatus check_parameters() const = 0;
-
-	/*! Check if the parametrization has rules or not.*/
-	bool has_rules() const;
-	/*! Returns false if the rules were not abided, meaning there was a modification of the parametrization.
-	* Returns true if rules are abided, meaning there was no modification of the parameterization.*/
-	virtual bool abide_rules() = 0;
-
-	/*! Process of parameters at construction.
-	* Usefull to call after a param_cast() assignment.
-	* When definition of param_init() is needed, must be reimplemented in the parametrization class inheriting from SlvParametrization.
-	* Ex: private parameter deriving from other ones.*/
-	virtual void param_init();
-
-	/*! Recursively find the parameters which name is \p _parameter_name.
-	* If \p _l_parametrizations is true, parameters which type is a parametrization can be counted.
-	* If false, they are excluded (but recursivity still applies).*/
-	std::vector<const SlvParameter_base*> find(std::string _parameter_name, bool _l_parametrizations) const;
-	/*! Recursively find the frist parameter which name is \p _parameter_name.
-	* If \p _l_parametrizations is true, parameters which type is a parametrization can be counted.
-	* If false, they are excluded (but recursivity still applies).
-	* Returns NULL if none found.*/
-	const SlvParameter_base* find_first(std::string _parameter_name, bool _l_parametrizations) const;
-
-	/*! Set parameter values using >> operator by providing parameter name and corresponding value as string.
-	* Returns :
-	* First of pair: the conflicts corresponding to multiple parameters with the same name. Ie: assignment ambiguity.
-	* Second of pair : parameter names that could not be found in the parametrization.*/
-	std::pair< std::map<std::string, int>, std::vector<std::string> > set_stream_values(const std::map<std::string, std::string>& _stream_values, bool _l_parametrizations);
+/*! Parameter class. Is inherited by parameters created in SlvParametrization**.*/
+template <class Tparam>
+class SlvParameter : public SlvParameter_base {
 
 private:
-	/*! Get a vector (one element per parameter) of strings. Each string is the slv::string::to_id_str of the parameter value.
-	* The marker value is used to discriminate which parameters are being converted to string.
-	* Setting the marker value of a parameter is possible in the macro classParameter.*/
-	virtual std::vector<std::string> get_vector_id_str(unsigned int _marker = SlvParameter_base::default_marker_value()) const = 0;
+
+    /*! Parameter value.*/
+    Tparam value;
+    /*! Rules depending on another parameter.*/
+    std::vector< SlvParameterRuleT< SlvParameter<Tparam> > > dynamic_rules;
+
+protected:
+
+    SlvParameter(SlvParametrization_base* _parametrization, Tparam _value);
+public:
+    ~SlvParameter();
+
+    virtual SlvParameter<Tparam>* clone(SlvParametrization_base* _parametrization) const = 0;
+
+    /*! Assign parameter value. In case Tparam derives from SlvParametrization, only the parameters are set.*/
+    void operator=(const SlvParameter<Tparam>& _parameter);
+
+    /*! Get parameter value.*/
+    const Tparam& get_value() const;
+    /*! Set parameter value. In case Tparam derives from SlvParametrization, if \p _l_param_only is true, then only the parameters are set.*/
+    void set_value(const Tparam& _value, bool _l_param_only = true);
+    /*! Get default value as set by the static parameter.*/
+    virtual const Tparam& get_default_value() const = 0;
+
+    /*! Check if rules are abided for this parameter. Rules can either depend only the parameter or either depend on other ones.*/
+    SlvStatus check_rules() const;
+
+    /*! Abide the rules of the parameter. Its value can change.*/
+    bool abide_rules();
+
+    bool operator==(const SlvParameter<Tparam>& _parameter) const;
+    bool operator!=(const SlvParameter<Tparam>& _parameter) const;
+
+    /*! Add a dynamic rule depending on other paramters.*/
+    void add_dynamic_rule(const SlvParameterRuleT< SlvParameter<Tparam> >& _dynamic_rule);
+
+    /*! Get rules depending only on this parameter.*/
+    virtual const std::vector< SlvParameterRuleT<Tparam> >& get_rules() const = 0;
+    /*! Get rules depending on other parameters.*/
+    const std::vector< SlvParameterRuleT< SlvParameter<Tparam> > >& get_dynamic_rules() const;
+    /*! Get description of each rule of the parameter.*/
+    std::vector<std::string> get_rules_description() const;
+
+    bool readB(std::ifstream& _input_file);
+    void writeB(std::ofstream& _output_file) const;
+
+#if OPTION_USE_THIRDPARTY_JSON==1
+    void writeJson(nlohmann::json& _json) const;
+    SlvStatus readJson(const nlohmann::json& _json);
+#endif
+
+protected:
+
+    void istream(std::istream& _is);
+    void ostream(std::ostream& _os) const;
+
+private:
+
+    /*! Static cast attempt of parameter value. Returns NULL if the parameter value is not a parametrization.*/
+    const SlvParametrization_base* parametrization_cast() const;
+
 };
+
+template <class Tparam>
+struct SlvParameterSpecSerialization {
+    static std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(const SlvParameter<Tparam>& _parameter);
+};
+
+template <>
+struct SlvParameterSpecSerialization<bool>;
+
+template <class Tparam, typename = void>
+struct SlvParameterSpec {
+    static void assign(Tparam& _parameter_value1, const Tparam& _parameter_value2, bool _l_param_only) {
+        _parameter_value1 = _parameter_value2;
+    }
+    static bool readB(Tparam& _parameter_value, std::ifstream& _input_file) {
+        return slv::rw::readB(_parameter_value, _input_file);
+    }
+    static void writeB(const Tparam& _parameter_value, std::ofstream& _output_file) {
+        slv::rw::writeB(_parameter_value, _output_file);
+    }
+#if OPTION_USE_THIRDPARTY_JSON==1
+    static void writeJson(const Tparam& _parameter_value, const std::string& _parameter_name, nlohmann::json& _json) {
+        slv::rw::json::writeJson(_parameter_value, _json[_parameter_name]);
+    }
+    static SlvStatus readJson(Tparam& _parameter_value, const std::string& _parameter_name, const nlohmann::json& _json) {
+        return slv::rw::json::readJson(_parameter_value, _parameter_name, _json);
+    }
+#endif
+    static void istream(Tparam& _parameter_value, std::istream& _is) {
+        _is >> _parameter_value;
+    }
+    static void ostream(const Tparam& _parameter_value, std::ostream& _os) {
+        _os << _parameter_value;
+    }
+    static void parse(Tparam& _parameter_value, const std::string& _string) {
+        slv::parse(_string, _parameter_value);
+    }
+    static bool is_equal(const Tparam& _parameter_value1, const Tparam& _parameter_value2) {
+        return _parameter_value1 == _parameter_value2;
+    }
+    static std::vector< std::pair<std::string, std::string> > get_string_serialization(const SlvParameter<Tparam>& _parameter) {
+        std::vector< std::pair<std::string, std::string> > serialization;
+        serialization.push_back({ _parameter.get_name(), slv::string::to_string(_parameter.get_value()) });
+        if (!_parameter.get_alias().empty()) {
+            serialization.push_back({ _parameter.get_alias(), slv::string::to_string(_parameter.get_value()) });
+        }
+        return serialization;
+    }
+    static std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(const SlvParameter<Tparam>& _parameter) {
+        return SlvParameterSpecSerialization<Tparam>::get_string_serialization_bool(_parameter);
+    }
+    static const SlvParametrization_base* parametrization_cast(const Tparam& _parameter_value) {
+        return NULL;
+    }
+};
+
+#define Tparam std::nullptr_t
+/*! Disable parameter operations for type std::nullptr_t*/
+template <>
+struct SlvParameterSpec<Tparam> {
+    static void assign(Tparam& _parameter_value1, const Tparam& _parameter_value2, bool _l_param_only) {
+    }
+    static bool readB(Tparam& _parameter_value, std::ifstream& _input_file) {
+        return true;
+    }
+    static void writeB(const Tparam& _parameter_value, std::ofstream& _output_file) {
+    }
+#if OPTION_USE_THIRDPARTY_JSON==1
+    static void writeJson(const Tparam& _parameter_value, const std::string& _parameter_name, nlohmann::json& _json) {
+    }
+    static SlvStatus readJson(Tparam& _parameter_value, const std::string& _parameter_name, const nlohmann::json& _json) {
+        return SlvStatus();
+    }
+#endif
+    static void istream(Tparam& _parameter_value, std::istream& _is) {
+    }
+    static void ostream(const Tparam& _parameter_value, std::ostream& _os) {
+    }
+    static void parse(Tparam& _parameter_value, const std::string& _string) {
+    }
+    static bool is_equal(const Tparam& _parameter_value1, const Tparam& _parameter_value2) {
+        return true;
+    }
+    static std::vector< std::pair<std::string, std::string> > get_string_serialization(const SlvParameter<Tparam>& _parameter) {
+        return {};
+    }
+    static std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(const SlvParameter<Tparam>& _parameter) {
+        return {};
+    }
+    static const SlvParametrization_base* parametrization_cast(const Tparam& _parameter_value) {
+        return NULL;
+    }
+};
+#undef Tparam
+
+template <class Tparam>
+std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > SlvParameterSpecSerialization<Tparam>::get_string_serialization_bool(const SlvParameter<Tparam>& _parameter) {
+    return { { SlvParameterSpec<Tparam>::get_string_serialization(_parameter) }, {} };
+}
+
+template <>
+struct SlvParameterSpecSerialization<bool> {
+    static std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(const SlvParameter<bool>& _parameter) {
+        std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization;
+        serialization.second.push_back({ _parameter.get_name(), _parameter.get_value()});
+        if (!_parameter.get_alias().empty()) {
+            serialization.second.push_back({ _parameter.get_name(), _parameter.get_value() });
+        }
+        return serialization;
+    }
+};
+
+template <class Tparam>
+struct SlvParameterSpec<Tparam, typename std::enable_if<SlvIsParametrization<Tparam>::value>::type> {
+    static void assign(Tparam& _parameter_value1, const Tparam& _parameter_value2, bool _l_param_only) {
+        if (_l_param_only) {
+            _parameter_value1.param_assign(_parameter_value2);
+        } else {
+            _parameter_value1 = _parameter_value2;
+        }
+    }
+    static bool readB(Tparam& _parameter_value, std::ifstream& _input_file) {
+        bool l_read = slv::rw::readB(_parameter_value.param_cast(), _input_file);// param only
+        _parameter_value.param_init();
+        return l_read;
+    }
+    static void writeB(const Tparam& _parameter_value, std::ofstream& _output_file) {
+        slv::rw::writeB(_parameter_value.param_cast(), _output_file);// param only
+    }
+#if OPTION_USE_THIRDPARTY_JSON==1
+    static void writeJson(const Tparam& _parameter_value, const std::string& _parameter_name, nlohmann::json& _json) {
+        slv::rw::json::writeJson(_parameter_value, _json[_parameter_name]);
+    }
+    static SlvStatus readJson(Tparam& _parameter_value, const std::string& _parameter_name, const nlohmann::json& _json) {
+        return slv::rw::json::readJson(_parameter_value, _parameter_name, _json);
+    }
+#endif
+    static void istream(Tparam& _parameter_value, std::istream& _is) {
+        _is >> _parameter_value.param_cast();
+    }
+    static void ostream(const Tparam& _parameter_value, std::ostream& _os) {
+        _os << _parameter_value.param_cast();
+    }
+    static void parse(Tparam& _parameter_value, const std::string& _string) {
+        // No string parsing for parametrization
+    }
+    static bool is_equal(const Tparam& _parameter_value1, const Tparam& _parameter_value2) {
+        return _parameter_value1.param_cast() == _parameter_value2.param_cast();
+    }
+    static std::vector< std::pair<std::string, std::string> > get_string_serialization(const SlvParameter<Tparam>& _parameter) {
+        return _parameter.get_value().param_cast().get_string_serialization();
+    }
+    static std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(const SlvParameter<Tparam>& _parameter) {
+        return _parameter.get_value().param_cast().get_string_serialization_bool();
+    }
+    static const SlvParametrization_base* parametrization_cast(const Tparam& _parameter_value) {
+        return static_cast<const SlvParametrization_base*>(&_parameter_value);
+    }
+};
+
+template <class Tparam>
+SlvParameter<Tparam>::SlvParameter(SlvParametrization_base* _parametrization, Tparam _value) :value(_value), SlvParameter_base(_parametrization) {
+
+}
+
+template <class Tparam>
+SlvParameter<Tparam>::~SlvParameter() {
+
+}
+
+template <class Tparam>
+void SlvParameter<Tparam>::operator=(const SlvParameter<Tparam>& _parameter) {
+    set_value(_parameter.value, true);
+}
+
+template <class Tparam>
+const Tparam& SlvParameter<Tparam>::get_value() const {
+    return value;
+}
+
+template <class Tparam>
+void SlvParameter<Tparam>::set_value(const Tparam& _value, bool _l_param_only) {
+    bool l_diff = !SlvParameterSpec<Tparam>::is_equal(_value, value);
+    if (l_diff) {
+        SlvParameterSpec<Tparam>::assign(value, _value, _l_param_only);
+        if (this->is_param_init_auto()) parametrization->param_init();
+    }
+}
+
+template <class Tparam>
+SlvStatus SlvParameter<Tparam>::check_rules() const {
+    SlvStatus status;
+    for (unsigned int r = 0; r < get_rules().size(); r++) {
+        status += get_rules()[r].is_abided(this);
+    }
+    for (unsigned int r = 0; r < get_dynamic_rules().size(); r++) {
+        status += get_dynamic_rules()[r].is_abided(this);
+    }
+    return status;
+}
+
+template <class Tparam>
+bool SlvParameter<Tparam>::abide_rules() {
+
+    bool l_abide_global = true;
+
+    // Maximum attemps
+    int Nmax_loops = 20;
+
+    // If one rules need abiding, then all rules are checked again.
+    bool l_abide = false;// for initialization
+    int i = 0;
+    while (!l_abide && i < Nmax_loops) {
+        l_abide = true;
+
+        for (unsigned int r = 0; r < get_rules().size(); r++) {
+            l_abide &= get_rules()[r].abide(this);
+        }
+
+        i++;
+        l_abide_global &= l_abide;//if l_abide is false at some point, l_abide_global will be too
+    }
+
+    return l_abide_global;
+}
+
+template <class Tparam>
+bool SlvParameter<Tparam>::operator==(const SlvParameter<Tparam>& _parameter) const {
+    return SlvParameterSpec<Tparam>::is_equal(value, _parameter.value);
+}
+
+template <class Tparam>
+bool SlvParameter<Tparam>::operator!=(const SlvParameter<Tparam>& _parameter) const {
+    return !(*this == _parameter);
+}
+
+template <class Tparam>
+void SlvParameter<Tparam>::add_dynamic_rule(const SlvParameterRuleT< SlvParameter<Tparam> >& _dynamic_rule) {
+    dynamic_rules.push_back(_dynamic_rule);
+}
+
+template <class Tparam>
+const std::vector< SlvParameterRuleT< SlvParameter<Tparam> > >& SlvParameter<Tparam>::get_dynamic_rules() const {
+    return dynamic_rules;
+}
+
+template <class Tparam>
+std::vector<std::string> SlvParameter<Tparam>::get_rules_description() const {
+
+    std::vector<std::string> descriptions;
+    for (typename std::vector< SlvParameterRuleT<Tparam> >::const_iterator it = get_rules().begin(); it != get_rules().end(); ++it) {
+        descriptions.push_back((*it).get_rule_description());
+    }
+    return descriptions;
+
+}
+
+template <class Tparam>
+const SlvParametrization_base* SlvParameter<Tparam>::parametrization_cast() const {
+
+    return SlvParameterSpec<Tparam>::parametrization_cast(value);
+
+}
+
+template <class Tparam>
+bool SlvParameter<Tparam>::readB(std::ifstream& _input_file) {
+
+    return SlvParameterSpec<Tparam>::readB(value, _input_file);
+
+}
+
+template <class Tparam>
+void SlvParameter<Tparam>::writeB(std::ofstream& _output_file) const {
+
+    SlvParameterSpec<Tparam>::writeB(value, _output_file);
+
+}
+
+#if OPTION_USE_THIRDPARTY_JSON==1
+template <class Tparam>
+void SlvParameter<Tparam>::writeJson(nlohmann::json& _json) const {
+
+    SlvParameterSpec<Tparam>::writeJson(value, get_name(), _json);
+
+}
+
+template <class Tparam>
+SlvStatus SlvParameter<Tparam>::readJson(const nlohmann::json& _json) {
+
+    Tparam value_ = get_default_value();
+    SlvStatus status = SlvParameterSpec<Tparam>::readJson(value_, get_name(), _json);
+    set_value(value_);
+    return status;
+
+}
+#endif
+
+template <class Tparam>
+void SlvParameter<Tparam>::istream(std::istream& _is) {
+
+    std::cout << "Enter value of " << get_name() << " (type: " << SlvDataName<Tparam>::name() << ") : ";
+    SlvParameterSpec<Tparam>::istream(value, _is);
+
+}
+
+template <class Tparam>
+void SlvParameter<Tparam>::ostream(std::ostream& _os) const {
+
+    _os << get_name() << " : ";
+    SlvParameterSpec<Tparam>::ostream(value, _os);
+
+}
+
+#define glvm_pv_get_macro_parameter(_1,_2,_3,_4,_5,_6,_7,macro,...) macro
+#define glvm_parameter(...) EXPAND( glvm_pv_get_macro_parameter(__VA_ARGS__, glvm_pv_parameter7, glvm_pv_parameter6, glvm_pv_parameter5, glvm_pv_parameter4)(__VA_ARGS__) )//EXPAND because of msvc bug
+
+#define glvm_pv_parameter4(parameter_number, class_name, class_type, parameter_name) \
+glvm_pv_parameter5(parameter_number, class_name, class_type, parameter_name, "")
+
+#define glvm_pv_parameter5(parameter_number, class_name, class_type, parameter_name, parameter_description) \
+glvm_pv_parameter6(parameter_number, class_name, class_type, parameter_name, parameter_description, class_type())
+
+#define glvm_pv_parameter6(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value) \
+glvm_pv_parameter7(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, SlvParameter<class_type>::default_marker_value())
+
+#define TYPE_NULLPTR_T nullptr_t
+#define MACSPEC_COMPARE_nullptr_t(x) x
+#define IS_TYPE_NULLPTR_T(type) MACSPEC_COMPARE(type, TYPE_NULLPTR_T)
+
+// glvm_pv_parameter_core are common to unruled and ruled parameters
+
+#define glvm_pv_parameter_core1(class_name, class_type, parameter_name, parameter_description, _default_value, marker_value) \
+private:\
+class SlvPvClassParam_##class_name : public SlvParameter<class_type> {\
+public:\
+SlvPvClassParam_##class_name(SlvParametrization_base* _parametrization, class_type _value = default_value()):SlvParameter<class_type>(_parametrization, _value){}\
+~SlvPvClassParam_##class_name(){}\
+virtual SlvPvClassParam_##class_name* clone(SlvParametrization_base* _parametrization) const {\
+SlvPvClassParam_##class_name* clone_parameter = new SlvPvClassParam_##class_name(*this);\
+clone_parameter->parametrization = _parametrization;\
+return clone_parameter;\
+}\
+private:\
+    static std::string parse_parameter_alias_name(const std::string _name) {\
+        std::string name = _name;\
+        size_t pos = _name.find(SlvParametrization_base::alias_delimiter());\
+        if (pos != std::string::npos) {\
+            name = _name.substr(0, pos);\
+            alias() = _name.substr(pos + SlvParametrization_base::alias_delimiter().size());\
+        }\
+        return name;\
+}\
+glvm_staticVariable(, std::string, alias, )\
+const std::string& get_alias() const { return alias(); }\
+glvm_staticVariable_const_get(std::string, name, parse_parameter_alias_name(parameter_name))\
+glvm_staticVariable_const_get(std::string, description, parameter_description)\
+glvm_staticVariable_const_get(class_type, default_value, _default_value)\
+glvm_staticVariable_const_get(std::vector< SlvParameterRuleT<class_type> >, rules, create_rules())\
+unsigned int get_Nrules() const { return (unsigned int)rules().size(); }\
+glvm_staticVariable_const_get(unsigned int, marker, marker_value)\
+typedef class_type Tparam;
+
+#define glvm_pv_parameter_core2(class_type) \
+private:\
+void set_stream_value(const std::string& _string, bool _l_param_only) {\
+class_type value_tmp(default_value()); SlvParameterSpec<class_type>::parse(value_tmp, _string);\
+this->set_value(value_tmp, _l_param_only);\
+}\
+std::string get_stream_value(bool _l_param_only) const {\
+std::ostringstream oss; oss << this->get_value(); return oss.str();\
+}\
+static std::vector< SlvParameterRuleT<class_type> > create_rules() {\
+std::vector< SlvParameterRuleT<class_type> > rules;\
+
+#define glvm_pv_parameter7(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, marker_value) \
+MACSPEC_IIF(IS_TYPE_NULLPTR_T(class_type))(glvm_pv_parameter7_nullptr_t, glvm_pv_parameter7_general)(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, marker_value)
+
+#define glvm_pv_parameter7_parameter(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, marker_value) \
+glvm_pv_parameter_core1(class_name, class_type, parameter_name, parameter_description, _default_value, marker_value)\
+glvm_staticVariable_const_get(bool, has_rules, false)\
+glvm_pv_parameter_core2(class_type)\
+rules.push_back(SlvParameterRuleT<class_type>());/*default rule*/\
+return rules;}\
+};
+
+#define glvm_pv_parameter7_nullptr_t(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, marker_value) \
+private:\
+glvm_pv_parameter7_parameter(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, marker_value)\
+protected:\
+typedef SlvPvClassParam_##class_name Tpv_parameter##parameter_number;\
+private:
+
+#define glvm_pv_parameter7_general(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, marker_value) \
+private:\
+glvm_pv_parameter7_parameter(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, marker_value)\
+protected:\
+typedef SlvPvClassParam_##class_name Tpv_parameter##parameter_number;\
+public:\
+const class_type& get_##class_name() const {return this->get_parameter##parameter_number().get_value();}\
+void set_##class_name(const class_type& _class_name, bool _l_param_only = true) {\
+this->set_parameter##parameter_number##_value(_class_name, _l_param_only);\
+}\
+static const std::string& get_##class_name##_pname() { return SlvPvClassParam_##class_name::name(); }\
+private:
+
+//RULED//
+#define glvm_pv_get_macro_parameter_ruled(_1,_2,_3,_4,_5,_6,_7,macro,...) macro
+#define glvm_parameter_ruled(...) EXPAND( glvm_pv_get_macro_parameter_ruled(__VA_ARGS__, glvm_pv_parameter_ruled7, glvm_pv_parameter_ruled6, glvm_pv_parameter_ruled5, glvm_pv_parameter_ruled4)(__VA_ARGS__) )//EXPAND because of msvc bug
+
+#define glvm_pv_parameter_ruled4(parameter_number, class_name, class_type, parameter_name) \
+glvm_pv_parameter_ruled5(parameter_number, class_name, class_type, parameter_name, "")
+
+#define glvm_pv_parameter_ruled5(parameter_number, class_name, class_type, parameter_name, parameter_description) \
+glvm_pv_parameter_ruled6(parameter_number, class_name, class_type, parameter_name, parameter_description, class_type())
+
+#define glvm_pv_parameter_ruled6(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value) \
+glvm_pv_parameter_ruled7(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, SlvParameter<class_type>::default_marker_value())
+
+//open macro
+#define glvm_pv_parameter_ruled7(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, marker_value) \
+private:\
+class SlvPvClassParam_##class_name;/*forward declaration to let upcoming implementation 'open'*/\
+protected:\
+typedef SlvPvClassParam_##class_name Tpv_parameter##parameter_number;\
+public:\
+const class_type& get_##class_name() const {return this->get_parameter##parameter_number().get_value();}\
+private:\
+void set_##class_name##_unruled_pv(const class_type& _class_name, bool _l_param_only, bool _l_param_init) {\
+this->set_parameter##parameter_number##_value(_class_name, _l_param_only);}\
+public:\
+void set_##class_name##_unruled(const class_type& _class_name, bool _l_param_only = true) { set_##class_name##_unruled_pv(_class_name, _l_param_only, true);}\
+static const std::string& get_##class_name##_pname() { return SlvPvClassParam_##class_name::name(); }\
+SlvStatus set_##class_name(const class_type& _class_name, bool _l_param_only = true) {\
+class_type value_tmp = get_##class_name();\
+set_##class_name##_unruled_pv(_class_name, _l_param_only, false);\
+SlvStatus status = this->get_parameter##parameter_number().check_rules();\
+if (!status) { set_##class_name##_unruled(value_tmp, _l_param_only); }\
+return status;\
+;}\
+glvm_pv_parameter_core1(class_name, class_type, parameter_name, parameter_description, _default_value, marker_value)\
+glvm_staticVariable_const_get(bool, has_rules, rules().size() > 1)\
+glvm_pv_parameter_core2(class_type)\
+rules.push_back(SlvParameterRuleT<Tparam>());
+
+#define glvm_parameter_add_rule(rule_type, rule_value) \
+rules.push_back(SlvParameterRuleT<Tparam>(SlvParameterRuleT<Tparam>::rule_type, rule_value));
+
+#define glvm_parameter_end return rules;}};\
+private:
+
+/*! Add a dynamic rule linking two parameters. Has to be called in parameterized class's constructor.*/
+#define glvm_parameter_addRuleParameter(parameter_name1, type, rule_type, parameter_name2) \
+parameter_name1##_parameter().add_dynamic_rule(SlvParameterRuleT<SlvPvClassParam_##parameter_name1::Tparameter>(SlvParameterRuleT<ClassParam_##parameter_name1::Tparameter>::rule_type, &parameter_name2##_parameter()));
 
 #define EXPAND(arg) arg
 #define glvm_pv_parametrization_constructor(\
@@ -11000,9 +10121,8 @@ public:
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
 	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const;
-	/*! Same as get_string_serialization, but bool parameters are treated appart.
-	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const;
+	/*! Same as get_string_serialization, but bool parameters are treated appart.*/
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const;
 protected:
 	void ostream(std::ostream& _os) const;
 	void istream_rec(std::istream& _is);
@@ -11060,567 +10180,6 @@ bool abide_rules() {\
     l_abide_rules &= const_cast<SlvParameter<T##current>*>(parameter##current)->abide_rules();\
 	return l_abide_rules;\
 }
-
-// Inspired from https://stackoverflow.com/questions/11632219/c-preprocessor-macro-specialisation-based-on-an-argument
-
-#define MACSPEC_CAT(a, ...) MACSPEC_PRIMITIVE_CAT(a, __VA_ARGS__)
-#define MACSPEC_PRIMITIVE_CAT(a, ...) a ## __VA_ARGS__
-
-#define MACSPEC_IIF(c) MACSPEC_PRIMITIVE_CAT(MACSPEC_IIF_, c)
-#define MACSPEC_IIF_0(t, ...) __VA_ARGS__
-#define MACSPEC_IIF_1(t, ...) t
-
-#define MACSPEC_COMPL(b) MACSPEC_PRIMITIVE_CAT(MACSPEC_COMPL_, b)
-#define MACSPEC_COMPL_0 1
-#define MACSPEC_COMPL_1 0
-
-#define MACSPEC_BITAND(x) MACSPEC_PRIMITIVE_CAT(MACSPEC_BITAND_, x)
-#define MACSPEC_BITAND_0(y) 0
-#define MACSPEC_BITAND_1(y) y
-
-#define MACSPEC_MSVC_VA_ARGS_WORKAROUND(define, args) define args
-#define MACSPEC_CHECK(...) MACSPEC_MSVC_VA_ARGS_WORKAROUND(MACSPEC_CHECK_N, (__VA_ARGS__, 0))
-#define MACSPEC_CHECK_N(x, n, ...) n
-#define MACSPEC_PROBE(x) x, 1,
-
-#define MACSPEC_IS_PAREN(x) MACSPEC_CHECK(MACSPEC_IS_PAREN_PROBE x)
-#define MACSPEC_IS_PAREN_PROBE(...) MACSPEC_PROBE(~)
-
-#define MACSPEC_COMPARE(a, b) MACSPEC_PRIMITIVE_COMPARE(a, b)
-#define MACSPEC_PRIMITIVE_COMPARE(a, b)\
-    MACSPEC_IIF(\
-        MACSPEC_BITAND\
-            (MACSPEC_IS_PAREN(MACSPEC_COMPARE_ ## a(())))\
-            (MACSPEC_IS_PAREN(MACSPEC_COMPARE_ ## b(())))\
-    )( \
-        MACSPEC_COMPL(MACSPEC_IS_PAREN(\
-            MACSPEC_COMPARE_ ## a(\
-                MACSPEC_COMPARE_ ## b\
-            )(())\
-        )),\
-        0\
-    )
-
-class SlvParametrization_base;
-
-/*! Parameter class. Is inherited by parameters created in SlvParametrization**.*/
-template <class Tparam>
-class SlvParameter : public SlvParameter_base {
-
-private:
-
-    /*! Parameter value.*/
-    Tparam value;
-    /*! Rules depending on another parameter.*/
-    std::vector< SlvParameterRuleT< SlvParameter<Tparam> > > dynamic_rules;
-
-protected:
-
-    SlvParameter(SlvParametrization_base* _parametrization, Tparam _value);
-public:
-    ~SlvParameter();
-
-    virtual SlvParameter<Tparam>* clone(SlvParametrization_base* _parametrization) const = 0;
-
-    /*! Assign parameter value. In case Tparam derives from SlvParametrization, only the parameters are set.*/
-    void operator=(const SlvParameter<Tparam>& _parameter);
-
-    /*! Get parameter value.*/
-    const Tparam& get_value() const;
-    /*! Set parameter value. In case Tparam derives from SlvParametrization, if \p _l_param_only is true, then only the parameters are set.*/
-    void set_value(const Tparam& _value, bool _l_param_only = true);
-    /*! Get default value as set by the static parameter.*/
-    virtual const Tparam& get_default_value() const = 0;
-
-    /*! Check if rules are abided for this parameter. Rules can either depend only the parameter or either depend on other ones.*/
-    SlvStatus check_rules() const;
-
-    /*! Abide the rules of the parameter. Its value can change.*/
-    bool abide_rules();
-
-    bool operator==(const SlvParameter<Tparam>& _parameter) const;
-    bool operator!=(const SlvParameter<Tparam>& _parameter) const;
-
-    /*! Add a dynamic rule depending on other paramters.*/
-    void add_dynamic_rule(const SlvParameterRuleT< SlvParameter<Tparam> >& _dynamic_rule);
-
-    /*! Get rules depending only on this parameter.*/
-    virtual const std::vector< SlvParameterRuleT<Tparam> >& get_rules() const = 0;
-    /*! Get rules depending on other parameters.*/
-    const std::vector< SlvParameterRuleT< SlvParameter<Tparam> > >& get_dynamic_rules() const;
-    /*! Get description of each rule of the parameter.*/
-    std::vector<std::string> get_rules_description() const;
-
-    bool readB(std::ifstream& _input_file);
-    void writeB(std::ofstream& _output_file) const;
-
-#if OPTION_USE_THIRDPARTY_JSON==1
-    void writeJson(nlohmann::json& _json) const;
-    SlvStatus readJson(const nlohmann::json& _json);
-#endif
-
-protected:
-
-    void istream(std::istream& _is);
-    void ostream(std::ostream& _os) const;
-
-private:
-
-    /*! Static cast attempt of parameter value. Returns NULL if the parameter value is not a parametrization.*/
-    const SlvParametrization_base* parametrization_cast() const;
-
-};
-
-template <class Tparam>
-struct SlvParameterSpecSerialization {
-    static std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(const SlvParameter<Tparam>& _parameter);
-};
-
-template <>
-struct SlvParameterSpecSerialization<bool>;
-
-template <class Tparam, typename = void>
-struct SlvParameterSpec {
-    static void assign(Tparam& _parameter_value1, const Tparam& _parameter_value2, bool _l_param_only) {
-        _parameter_value1 = _parameter_value2;
-    }
-    static bool readB(Tparam& _parameter_value, std::ifstream& _input_file) {
-        return slv::rw::readB(_parameter_value, _input_file);
-    }
-    static void writeB(const Tparam& _parameter_value, std::ofstream& _output_file) {
-        slv::rw::writeB(_parameter_value, _output_file);
-    }
-#if OPTION_USE_THIRDPARTY_JSON==1
-    static void writeJson(const Tparam& _parameter_value, const std::string& _parameter_name, nlohmann::json& _json) {
-        slv::rw::json::writeJson(_parameter_value, _json[_parameter_name]);
-    }
-    static SlvStatus readJson(Tparam& _parameter_value, const std::string& _parameter_name, const nlohmann::json& _json) {
-        return slv::rw::json::readJson(_parameter_value, _parameter_name, _json);
-    }
-#endif
-    static void istream(Tparam& _parameter_value, std::istream& _is) {
-        _is >> _parameter_value;
-    }
-    static void ostream(const Tparam& _parameter_value, std::ostream& _os) {
-        _os << _parameter_value;
-    }
-    static void parse(Tparam& _parameter_value, const std::string& _string) {
-        slv::parse(_string, _parameter_value);
-    }
-    static bool is_equal(const Tparam& _parameter_value1, const Tparam& _parameter_value2) {
-        return _parameter_value1 == _parameter_value2;
-    }
-    static std::vector< std::pair<std::string, std::string> > get_string_serialization(const SlvParameter<Tparam>& _parameter) {
-        return { {_parameter.get_name(), slv::string::to_string(_parameter.get_value())} };
-    }
-    static std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(const SlvParameter<Tparam>& _parameter) {
-        return SlvParameterSpecSerialization<Tparam>::get_string_serialization_bool(_parameter);
-    }
-    static const SlvParametrization_base* parametrization_cast(const Tparam& _parameter_value) {
-        return NULL;
-    }
-};
-
-#define Tparam std::nullptr_t
-/*! Disable parameter operations for type std::nullptr_t*/
-template <>
-struct SlvParameterSpec<Tparam> {
-    static void assign(Tparam& _parameter_value1, const Tparam& _parameter_value2, bool _l_param_only) {
-    }
-    static bool readB(Tparam& _parameter_value, std::ifstream& _input_file) {
-        return true;
-    }
-    static void writeB(const Tparam& _parameter_value, std::ofstream& _output_file) {
-    }
-#if OPTION_USE_THIRDPARTY_JSON==1
-    static void writeJson(const Tparam& _parameter_value, const std::string& _parameter_name, nlohmann::json& _json) {
-    }
-    static SlvStatus readJson(Tparam& _parameter_value, const std::string& _parameter_name, const nlohmann::json& _json) {
-        return SlvStatus();
-    }
-#endif
-    static void istream(Tparam& _parameter_value, std::istream& _is) {
-    }
-    static void ostream(const Tparam& _parameter_value, std::ostream& _os) {
-    }
-    static void parse(Tparam& _parameter_value, const std::string& _string) {
-    }
-    static bool is_equal(const Tparam& _parameter_value1, const Tparam& _parameter_value2) {
-        return true;
-    }
-    static std::vector< std::pair<std::string, std::string> > get_string_serialization(const SlvParameter<Tparam>& _parameter) {
-        return {};
-    }
-    static std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(const SlvParameter<Tparam>& _parameter) {
-        return {};
-    }
-    static const SlvParametrization_base* parametrization_cast(const Tparam& _parameter_value) {
-        return NULL;
-    }
-};
-#undef Tparam
-
-template <class Tparam>
-std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > SlvParameterSpecSerialization<Tparam>::get_string_serialization_bool(const SlvParameter<Tparam>& _parameter) {
-    return { { SlvParameterSpec<Tparam>::get_string_serialization(_parameter) }, {} };
-}
-
-template <>
-struct SlvParameterSpecSerialization<bool> {
-    static std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(const SlvParameter<bool>& _parameter) {
-        std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization;
-        if (_parameter.get_value()) {
-            serialization.second.push_back(_parameter.get_name());
-        }
-        return serialization;
-    }
-};
-
-template <class Tparam>
-struct SlvParameterSpec<Tparam, typename std::enable_if<SlvIsParametrization<Tparam>::value>::type> {
-    static void assign(Tparam& _parameter_value1, const Tparam& _parameter_value2, bool _l_param_only) {
-        if (_l_param_only) {
-            _parameter_value1.param_assign(_parameter_value2);
-        } else {
-            _parameter_value1 = _parameter_value2;
-        }
-    }
-    static bool readB(Tparam& _parameter_value, std::ifstream& _input_file) {
-        bool l_read = slv::rw::readB(_parameter_value.param_cast(), _input_file);// param only
-        _parameter_value.param_init();
-        return l_read;
-    }
-    static void writeB(const Tparam& _parameter_value, std::ofstream& _output_file) {
-        slv::rw::writeB(_parameter_value.param_cast(), _output_file);// param only
-    }
-#if OPTION_USE_THIRDPARTY_JSON==1
-    static void writeJson(const Tparam& _parameter_value, const std::string& _parameter_name, nlohmann::json& _json) {
-        slv::rw::json::writeJson(_parameter_value, _json[_parameter_name]);
-    }
-    static SlvStatus readJson(Tparam& _parameter_value, const std::string& _parameter_name, const nlohmann::json& _json) {
-        return slv::rw::json::readJson(_parameter_value, _parameter_name, _json);
-    }
-#endif
-    static void istream(Tparam& _parameter_value, std::istream& _is) {
-        _is >> _parameter_value.param_cast();
-    }
-    static void ostream(const Tparam& _parameter_value, std::ostream& _os) {
-        _os << _parameter_value.param_cast();
-    }
-    static void parse(Tparam& _parameter_value, const std::string& _string) {
-        // No string parsing for parametrization
-    }
-    static bool is_equal(const Tparam& _parameter_value1, const Tparam& _parameter_value2) {
-        return _parameter_value1.param_cast() == _parameter_value2.param_cast();
-    }
-    static std::vector< std::pair<std::string, std::string> > get_string_serialization(const SlvParameter<Tparam>& _parameter) {
-        return _parameter.get_value().param_cast().get_string_serialization();
-    }
-    static std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(const SlvParameter<Tparam>& _parameter) {
-        return _parameter.get_value().param_cast().get_string_serialization_bool();
-    }
-    static const SlvParametrization_base* parametrization_cast(const Tparam& _parameter_value) {
-        return static_cast<const SlvParametrization_base*>(&_parameter_value);
-    }
-};
-
-template <class Tparam>
-SlvParameter<Tparam>::SlvParameter(SlvParametrization_base* _parametrization, Tparam _value) :value(_value), SlvParameter_base(_parametrization) {
-
-}
-
-template <class Tparam>
-SlvParameter<Tparam>::~SlvParameter() {
-
-}
-
-template <class Tparam>
-void SlvParameter<Tparam>::operator=(const SlvParameter<Tparam>& _parameter) {
-    set_value(_parameter.value, true);
-}
-
-template <class Tparam>
-const Tparam& SlvParameter<Tparam>::get_value() const {
-    return value;
-}
-
-template <class Tparam>
-void SlvParameter<Tparam>::set_value(const Tparam& _value, bool _l_param_only) {
-    bool l_diff = !SlvParameterSpec<Tparam>::is_equal(_value, value);
-    if (l_diff) {
-        SlvParameterSpec<Tparam>::assign(value, _value, _l_param_only);
-        if (this->is_param_init_auto()) parametrization->param_init();
-    }
-}
-
-template <class Tparam>
-SlvStatus SlvParameter<Tparam>::check_rules() const {
-    SlvStatus status;
-    for (unsigned int r = 0; r < get_rules().size(); r++) {
-        status += get_rules()[r].is_abided(this);
-    }
-    for (unsigned int r = 0; r < get_dynamic_rules().size(); r++) {
-        status += get_dynamic_rules()[r].is_abided(this);
-    }
-    return status;
-}
-
-template <class Tparam>
-bool SlvParameter<Tparam>::abide_rules() {
-
-    bool l_abide_global = true;
-
-    // Maximum attemps
-    int Nmax_loops = 20;
-
-    // If one rules need abiding, then all rules are checked again.
-    bool l_abide = false;// for initialization
-    int i = 0;
-    while (!l_abide && i < Nmax_loops) {
-        l_abide = true;
-
-        for (unsigned int r = 0; r < get_rules().size(); r++) {
-            l_abide &= get_rules()[r].abide(this);
-        }
-
-        i++;
-        l_abide_global &= l_abide;//if l_abide is false at some point, l_abide_global will be too
-    }
-
-    return l_abide_global;
-}
-
-template <class Tparam>
-bool SlvParameter<Tparam>::operator==(const SlvParameter<Tparam>& _parameter) const {
-    return SlvParameterSpec<Tparam>::is_equal(value, _parameter.value);
-}
-
-template <class Tparam>
-bool SlvParameter<Tparam>::operator!=(const SlvParameter<Tparam>& _parameter) const {
-    return !(*this == _parameter);
-}
-
-template <class Tparam>
-void SlvParameter<Tparam>::add_dynamic_rule(const SlvParameterRuleT< SlvParameter<Tparam> >& _dynamic_rule) {
-    dynamic_rules.push_back(_dynamic_rule);
-}
-
-template <class Tparam>
-const std::vector< SlvParameterRuleT< SlvParameter<Tparam> > >& SlvParameter<Tparam>::get_dynamic_rules() const {
-    return dynamic_rules;
-}
-
-template <class Tparam>
-std::vector<std::string> SlvParameter<Tparam>::get_rules_description() const {
-
-    std::vector<std::string> descriptions;
-    for (typename std::vector< SlvParameterRuleT<Tparam> >::const_iterator it = get_rules().begin(); it != get_rules().end(); ++it) {
-        descriptions.push_back((*it).get_rule_description());
-    }
-    return descriptions;
-
-}
-
-template <class Tparam>
-const SlvParametrization_base* SlvParameter<Tparam>::parametrization_cast() const {
-
-    return SlvParameterSpec<Tparam>::parametrization_cast(value);
-
-}
-
-template <class Tparam>
-bool SlvParameter<Tparam>::readB(std::ifstream& _input_file) {
-
-    return SlvParameterSpec<Tparam>::readB(value, _input_file);
-
-}
-
-template <class Tparam>
-void SlvParameter<Tparam>::writeB(std::ofstream& _output_file) const {
-
-    SlvParameterSpec<Tparam>::writeB(value, _output_file);
-
-}
-
-#if OPTION_USE_THIRDPARTY_JSON==1
-template <class Tparam>
-void SlvParameter<Tparam>::writeJson(nlohmann::json& _json) const {
-
-    SlvParameterSpec<Tparam>::writeJson(value, get_name(), _json);
-
-}
-
-template <class Tparam>
-SlvStatus SlvParameter<Tparam>::readJson(const nlohmann::json& _json) {
-
-    Tparam value_ = get_default_value();
-    SlvStatus status = SlvParameterSpec<Tparam>::readJson(value_, get_name(), _json);
-    set_value(value_);
-    return status;
-
-}
-#endif
-
-template <class Tparam>
-void SlvParameter<Tparam>::istream(std::istream& _is) {
-
-    std::cout << "Enter value of " << get_name() << " (type: " << SlvDataName<Tparam>::name() << ") : ";
-    SlvParameterSpec<Tparam>::istream(value, _is);
-
-}
-
-template <class Tparam>
-void SlvParameter<Tparam>::ostream(std::ostream& _os) const {
-
-    _os << get_name() << " : ";
-    SlvParameterSpec<Tparam>::ostream(value, _os);
-
-}
-
-#define glvm_pv_get_macro_parameter(_1,_2,_3,_4,_5,_6,_7,macro,...) macro
-#define glvm_parameter(...) EXPAND( glvm_pv_get_macro_parameter(__VA_ARGS__, glvm_pv_parameter7, glvm_pv_parameter6, glvm_pv_parameter5, glvm_pv_parameter4)(__VA_ARGS__) )//EXPAND because of msvc bug
-
-#define glvm_pv_parameter4(parameter_number, class_name, class_type, parameter_name) \
-glvm_pv_parameter5(parameter_number, class_name, class_type, parameter_name, "")
-
-#define glvm_pv_parameter5(parameter_number, class_name, class_type, parameter_name, parameter_description) \
-glvm_pv_parameter6(parameter_number, class_name, class_type, parameter_name, parameter_description, class_type())
-
-#define glvm_pv_parameter6(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value) \
-glvm_pv_parameter7(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, SlvParameter<class_type>::default_marker_value())
-
-#define TYPE_NULLPTR_T nullptr_t
-#define MACSPEC_COMPARE_nullptr_t(x) x
-#define IS_TYPE_NULLPTR_T(type) MACSPEC_COMPARE(type, TYPE_NULLPTR_T)
-
-#define glvm_pv_parameter7(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, marker_value) \
-MACSPEC_IIF(IS_TYPE_NULLPTR_T(class_type))(glvm_pv_parameter7_nullptr_t, glvm_pv_parameter7_general)(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, marker_value)
-
-#define glvm_pv_parameter7_parameter(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, marker_value) \
-class SlvPvClassParam_##class_name : public SlvParameter<class_type> {\
-public:\
-SlvPvClassParam_##class_name(SlvParametrization_base* _parametrization, class_type _value = default_value()):SlvParameter<class_type>(_parametrization, _value){ this->abide_rules();}\
-~SlvPvClassParam_##class_name(){}\
-virtual SlvPvClassParam_##class_name* clone(SlvParametrization_base* _parametrization) const {\
-SlvPvClassParam_##class_name* clone_parameter = new SlvPvClassParam_##class_name(*this);\
-clone_parameter->parametrization = _parametrization;\
-return clone_parameter;\
-}\
-glvm_staticVariable_const_get(std::string, name, parameter_name)\
-glvm_staticVariable_const_get(std::string, description, parameter_description)\
-glvm_staticVariable_const_get(class_type, default_value, _default_value)\
-glvm_staticVariable_const_get(std::vector< SlvParameterRuleT<class_type> >, rules, create_rules());\
-unsigned int get_Nrules() const { return (unsigned int)rules().size(); }\
-glvm_staticVariable_const_get(unsigned int, marker, marker_value)\
-typedef class_type Tparam;\
-private:\
-void set_stream_value(const std::string& _string, bool _l_param_only) {\
-class_type value_tmp(default_value()); SlvParameterSpec<class_type>::parse(value_tmp, _string);\
-this->set_value(value_tmp, _l_param_only);\
-}\
-std::string get_stream_value(bool _l_param_only) const {\
-std::ostringstream oss; oss << this->get_value(); return oss.str();\
-}\
-static std::vector< SlvParameterRuleT<class_type> > create_rules() {\
-std::vector< SlvParameterRuleT<class_type> > rules;\
-rules.push_back(SlvParameterRuleT<class_type>());/*default rule*/\
-return rules;}\
-glvm_staticVariable_const_get(bool, has_rules, false)\
-};
-
-#define glvm_pv_parameter7_nullptr_t(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, marker_value) \
-private:\
-glvm_pv_parameter7_parameter(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, marker_value)\
-protected:\
-typedef SlvPvClassParam_##class_name Tpv_parameter##parameter_number;\
-private:
-
-#define glvm_pv_parameter7_general(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, marker_value) \
-private:\
-glvm_pv_parameter7_parameter(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, marker_value)\
-protected:\
-typedef SlvPvClassParam_##class_name Tpv_parameter##parameter_number;\
-public:\
-const class_type& get_##class_name() const {return this->get_parameter##parameter_number().get_value();}\
-void set_##class_name(const class_type& _class_name, bool _l_param_only = true) {\
-this->set_parameter##parameter_number##_value(_class_name, _l_param_only);\
-}\
-static const std::string& get_##class_name##_pname() { return SlvPvClassParam_##class_name::name(); }\
-private:
-
-//RULED//
-#define glvm_pv_get_macro_parameter_ruled(_1,_2,_3,_4,_5,_6,_7,macro,...) macro
-#define glvm_parameter_ruled(...) EXPAND( glvm_pv_get_macro_parameter_ruled(__VA_ARGS__, glvm_pv_parameter_ruled7, glvm_pv_parameter_ruled6, glvm_pv_parameter_ruled5, glvm_pv_parameter_ruled4)(__VA_ARGS__) )//EXPAND because of msvc bug
-
-#define glvm_pv_parameter_ruled4(parameter_number, class_name, class_type, parameter_name) \
-glvm_pv_parameter_ruled5(parameter_number, class_name, class_type, parameter_name, "")
-
-#define glvm_pv_parameter_ruled5(parameter_number, class_name, class_type, parameter_name, parameter_description) \
-glvm_pv_parameter_ruled6(parameter_number, class_name, class_type, parameter_name, parameter_description, class_type())
-
-#define glvm_pv_parameter_ruled6(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value) \
-glvm_pv_parameter_ruled7(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, SlvParameter<class_type>::default_marker_value())
-
-//open macro
-#define glvm_pv_parameter_ruled7(parameter_number, class_name, class_type, parameter_name, parameter_description, _default_value, marker_value) \
-private:\
-class SlvPvClassParam_##class_name;/*forward declaration to let upcoming implementation 'open'*/\
-protected:\
-typedef SlvPvClassParam_##class_name Tpv_parameter##parameter_number;\
-public:\
-const class_type& get_##class_name() const {return this->get_parameter##parameter_number().get_value();}\
-private:\
-void set_##class_name##_unruled_pv(const class_type& _class_name, bool _l_param_only, bool _l_param_init) {\
-this->set_parameter##parameter_number##_value(_class_name, _l_param_only);}\
-public:\
-void set_##class_name##_unruled(const class_type& _class_name, bool _l_param_only = true) { set_##class_name##_unruled_pv(_class_name, _l_param_only, true);}\
-static const std::string& get_##class_name##_pname() { return SlvPvClassParam_##class_name::name(); }\
-SlvStatus set_##class_name(const class_type& _class_name, bool _l_param_only = true) {\
-class_type value_tmp = get_##class_name();\
-set_##class_name##_unruled_pv(_class_name, _l_param_only, false);\
-SlvStatus status = this->get_parameter##parameter_number().check_rules();\
-if (!status) { set_##class_name##_unruled(value_tmp, _l_param_only); }\
-return status;\
-;}\
-private:\
-class SlvPvClassParam_##class_name : public SlvParameter<class_type> {\
-public:\
-SlvPvClassParam_##class_name(SlvParametrization_base* _parametrization, class_type _value = default_value()):SlvParameter<class_type>(_parametrization, _value){}\
-~SlvPvClassParam_##class_name(){}\
-virtual SlvPvClassParam_##class_name* clone(SlvParametrization_base* _parametrization) const {\
-SlvPvClassParam_##class_name* clone_parameter = new SlvPvClassParam_##class_name(*this);\
-clone_parameter->parametrization = _parametrization;\
-return clone_parameter;\
-}\
-glvm_staticVariable_const_get(std::string, name, parameter_name)\
-glvm_staticVariable_const_get(std::string, description, parameter_description)\
-glvm_staticVariable_const_get(class_type, default_value, _default_value)\
-glvm_staticVariable_const_get(std::vector< SlvParameterRuleT<class_type> >, rules, create_rules())\
-unsigned int get_Nrules() const { return (unsigned int)rules().size(); }\
-glvm_staticVariable_const_get(unsigned int, marker, marker_value)\
-typedef class_type Tparam;\
-glvm_staticVariable_const_get(bool, has_rules, rules().size() > 1)\
-private:\
-void set_stream_value(const std::string& _string, bool _l_param_only) {\
-class_type value_tmp(default_value()); SlvParameterSpec<class_type>::parse(value_tmp, _string);\
-this->set_value(value_tmp, _l_param_only);\
-}\
-std::string get_stream_value(bool _l_param_only) const {\
-std::ostringstream oss; oss << this->get_value(); return oss.str();\
-}\
-static std::vector< SlvParameterRuleT<class_type> > create_rules() {\
-std::vector< SlvParameterRuleT<class_type> > rules;\
-rules.push_back(SlvParameterRuleT<Tparam>());
-
-#define glvm_parameter_add_rule(rule_type, rule_value) \
-rules.push_back(SlvParameterRuleT<Tparam>(SlvParameterRuleT<Tparam>::rule_type, rule_value));
-
-#define glvm_parameter_end return rules;}};\
-private:
-
-/*! Add a dynamic rule linking two parameters. Has to be called in parameterized class's constructor.*/
-#define glvm_parameter_addRuleParameter(parameter_name1, type, rule_type, parameter_name2) \
-parameter_name1##_parameter().add_dynamic_rule(SlvParameterRuleT<SlvPvClassParam_##parameter_name1::Tparameter>(SlvParameterRuleT<ClassParam_##parameter_name1::Tparameter>::rule_type, &parameter_name2##_parameter()));
 
 /*! Parametrization for 1 parameters.*/
 template <class T1>
@@ -11709,7 +10268,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter1->get_marker()) {
@@ -11720,10 +10280,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter1->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T1>::get_string_serialization_bool(*parameter1);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T1>::get_string_serialization_bool(*parameter1);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -11889,7 +10449,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter2->get_marker()) {
@@ -11900,10 +10461,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter2->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T2>::get_string_serialization_bool(*parameter2);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T2>::get_string_serialization_bool(*parameter2);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -12069,7 +10630,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter3->get_marker()) {
@@ -12080,10 +10642,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter3->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T3>::get_string_serialization_bool(*parameter3);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T3>::get_string_serialization_bool(*parameter3);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -12249,7 +10811,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter4->get_marker()) {
@@ -12260,10 +10823,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter4->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T4>::get_string_serialization_bool(*parameter4);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T4>::get_string_serialization_bool(*parameter4);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -12429,7 +10992,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter5->get_marker()) {
@@ -12440,10 +11004,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter5->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T5>::get_string_serialization_bool(*parameter5);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T5>::get_string_serialization_bool(*parameter5);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -12609,7 +11173,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter6->get_marker()) {
@@ -12620,10 +11185,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter6->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T6>::get_string_serialization_bool(*parameter6);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T6>::get_string_serialization_bool(*parameter6);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -12789,7 +11354,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter7->get_marker()) {
@@ -12800,10 +11366,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter7->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T7>::get_string_serialization_bool(*parameter7);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T7>::get_string_serialization_bool(*parameter7);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -12969,7 +11535,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter8->get_marker()) {
@@ -12980,10 +11547,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter8->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T8>::get_string_serialization_bool(*parameter8);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T8>::get_string_serialization_bool(*parameter8);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -13149,7 +11716,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter9->get_marker()) {
@@ -13160,10 +11728,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter9->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T9>::get_string_serialization_bool(*parameter9);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T9>::get_string_serialization_bool(*parameter9);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -13329,7 +11897,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter10->get_marker()) {
@@ -13340,10 +11909,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter10->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T10>::get_string_serialization_bool(*parameter10);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T10>::get_string_serialization_bool(*parameter10);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -13509,7 +12078,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter11->get_marker()) {
@@ -13520,10 +12090,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter11->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T11>::get_string_serialization_bool(*parameter11);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T11>::get_string_serialization_bool(*parameter11);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -13689,7 +12259,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter12->get_marker()) {
@@ -13700,10 +12271,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter12->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T12>::get_string_serialization_bool(*parameter12);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T12>::get_string_serialization_bool(*parameter12);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -13869,7 +12440,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter13->get_marker()) {
@@ -13880,10 +12452,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter13->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T13>::get_string_serialization_bool(*parameter13);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T13>::get_string_serialization_bool(*parameter13);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -14049,7 +12621,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter14->get_marker()) {
@@ -14060,10 +12633,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter14->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T14>::get_string_serialization_bool(*parameter14);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T14>::get_string_serialization_bool(*parameter14);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -14229,7 +12802,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter15->get_marker()) {
@@ -14240,10 +12814,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter15->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T15>::get_string_serialization_bool(*parameter15);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T15>::get_string_serialization_bool(*parameter15);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -14409,7 +12983,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter16->get_marker()) {
@@ -14420,10 +12995,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter16->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T16>::get_string_serialization_bool(*parameter16);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T16>::get_string_serialization_bool(*parameter16);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -14589,7 +13164,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter17->get_marker()) {
@@ -14600,10 +13176,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter17->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T17>::get_string_serialization_bool(*parameter17);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T17>::get_string_serialization_bool(*parameter17);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -14769,7 +13345,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter18->get_marker()) {
@@ -14780,10 +13357,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter18->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T18>::get_string_serialization_bool(*parameter18);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T18>::get_string_serialization_bool(*parameter18);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -14949,7 +13526,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter19->get_marker()) {
@@ -14960,10 +13538,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter19->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T19>::get_string_serialization_bool(*parameter19);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T19>::get_string_serialization_bool(*parameter19);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -15129,7 +13707,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter20->get_marker()) {
@@ -15140,10 +13719,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter20->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T20>::get_string_serialization_bool(*parameter20);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T20>::get_string_serialization_bool(*parameter20);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -15309,7 +13888,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter21->get_marker()) {
@@ -15320,10 +13900,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter21->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T21>::get_string_serialization_bool(*parameter21);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T21>::get_string_serialization_bool(*parameter21);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -15489,7 +14069,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter22->get_marker()) {
@@ -15500,10 +14081,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter22->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T22>::get_string_serialization_bool(*parameter22);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T22>::get_string_serialization_bool(*parameter22);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -15669,7 +14250,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter23->get_marker()) {
@@ -15680,10 +14262,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter23->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T23>::get_string_serialization_bool(*parameter23);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T23>::get_string_serialization_bool(*parameter23);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -15849,7 +14431,8 @@ public:
 	}
 
 	/*! Get string serialization of the parametrization. Each vector element contains a parameter name and the corresponding parameter value as string using operator <<.
-	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.*/
+	* Parameters of nested parametrizations are simply added. Ie: there is no record of intermediate parametrizations.
+	* Parameters alias are also added (same as names), if they exist.*/
 	std::vector< std::pair<std::string, std::string> > get_string_serialization(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
 		std::vector< std::pair<std::string, std::string> > serialization = Tparametrization_lower::get_string_serialization(_marker);
 		if (_marker == parameter24->get_marker()) {
@@ -15860,10 +14443,10 @@ public:
 
 	/*! Same as get_string_serialization, but bool parameters are treated appart.
 	* If bool parameter is true, the parameter name is added to the second vector, if false it is not.*/
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
-		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > get_string_serialization_bool(unsigned int _marker = SlvParameter_base::default_marker_value()) const {
+		std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = Tparametrization_lower::get_string_serialization_bool(_marker);
 		if (_marker == parameter24->get_marker()) {
-			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization_parameter = SlvParameterSpec<T24>::get_string_serialization_bool(*parameter24);
+			std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization_parameter = SlvParameterSpec<T24>::get_string_serialization_bool(*parameter24);
 			slv::vector::add(serialization.first, serialization_parameter.first);
 			slv::vector::add(serialization.second, serialization_parameter.second);
 		}
@@ -18405,541 +16988,677 @@ using GlvTreeWidgetDialog = GlvDialogData<GlvTreeViewWidget, Tdata>;
 template <class Tdata>
 using GlvTreeWidgetPersistentDialog = GlvDialogData<GlvTreeViewWidgetPersistent, Tdata>;
 
-// Containers, except std::map, std::unordered_map and std::string
-#define Tenable typename std::enable_if<SlvIsContainer<Tcontainer>::value && !SlvIsMap<Tcontainer>::value && !std::is_same<Tcontainer, std::string>::value>::type
-#define Tenable_sub typename std::enable_if<SlvIsContainer<typename _Tcontainer::value_type>::value && !SlvIsMap<typename _Tcontainer::value_type>::value && !std::is_same<typename _Tcontainer::value_type, std::string>::value>::type
-
-/*! Specialization of QStandardItemModelMaker for std::vector, std::list, std::deque, std::array.*/
-template <class Tcontainer>
-struct glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable> {
-    static constexpr bool is_specialized = true;
-private:
-    template <class _Tcontainer, typename = void>
-    struct ContainerHandler;
-    template <class _Tcontainer, typename = void>
-    struct ContainerHandlerResize;
-public:
-    typedef typename ContainerHandler<Tcontainer>::Tdata_sub Tdata_sub;
-private:
-    static QString get_root_text(unsigned int _Mrows, unsigned int _Ncols);
-public:
-    static void make(const Tcontainer& _container, QStandardItemModel* _model, const QModelIndex _index = QModelIndex(), const Qt::ItemFlag _flag_additional = Qt::NoItemFlags);
-
-    static Tcontainer get_value(const QStandardItemModel* _model, const QModelIndex& _index, const int _Mrows, const int _Ncols);
-
-    static std::vector<int> get_coordinates(QModelIndex& _index);
-};
-
-template <class Tcontainer>
-template <class _Tcontainer, typename>
-struct glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable>::ContainerHandlerResize {
-    static void resize(_Tcontainer& _container, int _size) {
-        _container.resize(_size);
-    }
-};
-
-glvm_SlvHasMethodSignature(SlvHasResize, void, resize, 0)
-
-template <class Tcontainer>
-template <class _Tcontainer>
-struct glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable>::ContainerHandlerResize<_Tcontainer, typename std::enable_if<!SlvHasResize<_Tcontainer>::value>::type> {
-    static void resize(_Tcontainer& _container, int _size) {
-        
-    }
-};
-
-template <class Tcontainer>
-template <class _Tcontainer, typename>
-struct glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable>::ContainerHandler {
-
-    typedef typename Tcontainer::value_type Tdata_sub;
-
-    static std::size_t get_size(const Tcontainer& _container) {
-        return 1;
-    }
-
-    static void set_model(const typename Tcontainer::value_type& _value, int _i, QStandardItemModel* _model, const QModelIndex& _index, const Qt::ItemFlag _flag_additional) {
-
-        QModelIndex index;
-        index = _model->index(_i, 0, _index);
-        glv::tdata::toQStandardItem(_value, _model->itemFromIndex(index));
-        _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() | _flag_additional);
-
-    }
-
-    static void resize(typename Tcontainer::value_type& _value, int _Ncols) {
-
-    }
-
-    static void get_value(typename Tcontainer::value_type& _value, int _i, const QStandardItemModel* _model, const QModelIndex& _index) {
-
-        QStandardItem* item = _model->itemFromIndex(_model->index(_i, 0, _index));
-        _value = glv::tdata::fromQStandardItem<typename Tcontainer::value_type>(item);
-
-    }
-
-    static void add_coordinate(std::vector<int>& _coordinates, QModelIndex& _index) {
-
-    }
-
-};
-
-template <class Tcontainer>
-template <class _Tcontainer>
-struct glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable>::ContainerHandler<_Tcontainer, Tenable_sub> {
-
-    typedef typename Tcontainer::value_type::value_type Tdata_sub;
-
-    static std::size_t get_size(const Tcontainer& _data) {
-        std::size_t size = 0;
-        for (typename Tcontainer::const_iterator it = _data.begin(); it != _data.end(); ++it) {
-            if (it->size() > size) {
-                size = it->size();
-            }
-        }
-        return size;
-    }
-
-    static void set_model(const typename Tcontainer::value_type& _value, int _i, QStandardItemModel* _model, const QModelIndex& _index, const Qt::ItemFlag _flag_additional) {
-
-        QModelIndex index;
-        int j = 0;
-        for (typename Tcontainer::value_type::const_iterator it = _value.begin(); it != _value.end(); ++it, j++) {
-            index = _model->index(_i, j, _index);
-            glv::tdata::toQStandardItem(*it, _model->itemFromIndex(index));
-            _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() | _flag_additional);
-        }
-
-    }
-
-    static void resize(typename Tcontainer::value_type& _value, int _Ncols) {
-
-        ContainerHandlerResize<typename Tcontainer::value_type>::resize(_value, _Ncols);
-
-    }
-
-    static void get_value(typename Tcontainer::value_type& _value, int _i, const QStandardItemModel* _model, const QModelIndex& _index) {
-
-        QStandardItem* item;
-        int j = 0;
-        for (typename Tcontainer::value_type::iterator it = _value.begin(); it != _value.end(); ++it, j++) {
-            item = _model->itemFromIndex(_model->index(_i, j, _index));
-            *it = glv::tdata::fromQStandardItem<typename Tcontainer::value_type::value_type>(item);
-        }
-
-    }
-
-    static void add_coordinate(std::vector<int>& _coordinates, QModelIndex& _index) {
-
-        _coordinates.insert(_coordinates.begin(), _index.column());
-
-    }
-
-};
-
-template <class Tcontainer>
-QString glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable>::get_root_text(unsigned int _Mrows, unsigned int _Ncols) {
-    return QString::number(_Mrows) + "x" + QString::number(_Ncols);
-}
-
-template <class Tcontainer>
-void glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable>::make(const Tcontainer& _container, QStandardItemModel* _model, const QModelIndex _index, const Qt::ItemFlag _flag_additional) {
-
-    if (_model) {
-
-        if (_index == QModelIndex() || _index.model() == _model) {
-
-            unsigned int Mrows = (unsigned int)_container.size();
-            glv::resize_rows(_model, Mrows, _index);
-            unsigned int Ncols = (unsigned int)ContainerHandler<Tcontainer>::get_size(_container);
-            glv::resize_cols(_model, Ncols, _index);
-
-            QModelIndex index;
-            typename Tcontainer::const_iterator it = _container.begin();
-            for (int i = 0; i < (int)Mrows; i++, ++it) {
-                ContainerHandler<Tcontainer>::set_model(*it, i, _model, _index, _flag_additional);
-            }
-
-            if (_index != QModelIndex()) {
-                QString root_text = get_root_text(Mrows, Ncols);
-                if (_model->itemFromIndex(_index)->text() != root_text) {
-                    _model->itemFromIndex(_index)->setText(root_text);
-                }
-            }
-
-        } else {
-            slv::flag::ISSUE(slv::flag::Critical, "index's model is different from the one it is supposed to belong to");
-        }
-
-    } else {
-        slv::flag::ISSUE(slv::flag::Critical, "_model is NULL");
-    }
-
-}
-
-template <class Tcontainer>
-Tcontainer glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable>::get_value(const QStandardItemModel* _model, const QModelIndex& _index, const int _Mrows, const int _Ncols) {
-
-    Tcontainer container;
-
-    if (_index == QModelIndex() || _index.model() == _model) {
-
-        int Mrows = (_Mrows == -1) ? _model->rowCount(_index) : std::min(_model->rowCount(_index), _Mrows);
-        int Ncols = (_Ncols == -1) ? _model->columnCount(_index) : std::min(_model->columnCount(_index), _Ncols);
-
-        ContainerHandlerResize<Tcontainer>::resize(container, Mrows);
-        for (typename Tcontainer::iterator it = container.begin(); it != container.end(); ++it) {
-            ContainerHandler<Tcontainer>::resize(*it, Ncols);
-        }
-
-        typename Tcontainer::iterator it = container.begin();
-        for (int i = 0; i < Mrows; i++, ++it) {
-            ContainerHandler<Tcontainer>::get_value(*it, i, _model, _index);
-        }
-
-    } else {
-        slv::flag::ISSUE(slv::flag::Critical, "index's model is different from the one it is supposed to belong to");
-    }
-
-    return container;
-
-}
-
-template <class Tcontainer>
-std::vector<int> glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable>::get_coordinates(QModelIndex& _index) {
-
-    std::vector<int> coordinates = glv::tdata::QStandardItemMaker<Tdata_sub>::get_coordinates(_index);
-    ContainerHandler<Tcontainer>::add_coordinate(coordinates, _index);
-    coordinates.insert(coordinates.begin(), _index.row());
-    _index = _index.parent();
-
-    return coordinates;
-}
-
-#undef Tenable
-
-#if OPTION_WIDGET_DATA_CONTAINER_TABLE==1
-
-// Container of container, except std::map, std::unordered_map and std::string
-#define Tenable typename std::enable_if<SlvIsContainer<Tcontainer>::value && SlvIsContainer<typename Tcontainer::value_type>::value && !std::is_same<typename Tcontainer::value_type, std::string>::value && !SlvIsMap<Tcontainer>::value && !std::is_same<Tcontainer, std::string>::value>::type
-
-/*! GlvWidgetData specialization for template type: .*/
-template <class Tcontainer>
-class GlvWidgetData<Tcontainer, Tenable> : public GlvTableView<Tcontainer> {
-
-public:
-    GlvWidgetData(Tcontainer _container = Tcontainer(), QWidget* _parent = 0) :GlvTableView<Tcontainer>(_container, _parent) {
-        GlvTableView_base::set_fixed_size(true);
-    }
-    ~GlvWidgetData() {}
-
-};
-
-template <class Tcontainer>
-struct GlvWidgetMakerConnect<Tcontainer, Tenable> {
-    static void connect(GlvWidgetData<Tcontainer>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
-        QObject::connect(_widget, SIGNAL(valueChanged(const std::vector<int>&)), _widget_connector, SLOT(valueChanged_slot(const std::vector<int>&)));
-    }
-};
-
-#undef Tenable
 #endif
 
-/*! Simple QStandardItem containing a template value and its expression in QString. If no specialization of glv::toQString<T>, slv::string::to_string<T> is used.*/
+template <typename Tcontainer, typename = void>
+struct SlvIsMap {
+    static constexpr bool value = false;
+};
+
+template <class Tkey, class Tvalue>
+struct SlvIsMap< std::map<Tkey, Tvalue> > {
+    static constexpr bool value = true;
+};
+
+template <class Tkey, class Tvalue>
+struct SlvIsMap< std::unordered_map<Tkey, Tvalue> > {
+    static constexpr bool value = true;
+};
+
+#ifndef GLOVE_DISABLE_QT
+
 template <class T>
-class GlvStandardItem : public QStandardItem {
+class GlvWidget;
+template <class T>
+class GlvVectorWidget;
+
+/*! Item widget for GlvVectorWidget.*/
+template <class T>
+class GlvVectorWidgetItem : public GlvVectorWidgetItem_base {
+
+private:
+
+    /*! Widget of the data.*/
+    GlvWidget<T>* widget;
+    /*! Vector widget the item belongs to.*/
+    GlvVectorWidget<T>* parent;
+
+private:
+
+    /*! \p _value : Initialization value.
+    * \p _index : index in GlvVectorWidget.*
+    * \p _parent : Vector widget the item belongs to.*/
+    GlvVectorWidgetItem(const T& _value, const unsigned int _index, GlvVectorWidget<T>* _parent);
+    ~GlvVectorWidgetItem();
+
+public:
+    T get_value() const;
+    void set_value(const T _value);
+private:
+    GlvWidget<T>* get_widget() const;
+    void increment_index();
+    void decrement_index();
+    void update_label_index();
+
+    /*! Remove in GlvVectorWidget at index contained in the instance.*/
+    void remove();
+
+    friend class GlvVectorWidget<T>;
+
+};
+
+template <class T>
+GlvVectorWidgetItem<T>::GlvVectorWidgetItem(const T& _value, const unsigned int _index, GlvVectorWidget<T>* _parent) {
+
+    widget = new GlvWidget<T>(_value);
+    widget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    index = _index;
+    parent = _parent;
+
+    label_index = new QLabel;
+    update_label_index();
+    remove_button = new QPushButton(tr("x"));
+    remove_button->setFixedWidth(30);
+    QString info = QString(tr("Erase the element"));
+    remove_button->setWhatsThis(info);
+    remove_button->setToolTip(info);
+    layout->addWidget(label_index);
+    layout->addWidget(widget);
+    layout->addWidget(remove_button);
+
+    connect(remove_button, SIGNAL(clicked()), this, SLOT(remove()));
+    connect(widget, SIGNAL(valueChanged()), this, SIGNAL(valueChanged()));
+
+}
+
+template <class T>
+GlvVectorWidgetItem<T>::~GlvVectorWidgetItem() {
+
+}
+
+template <class T>
+T GlvVectorWidgetItem<T>::get_value() const {
+
+    return widget->get_value();
+
+}
+
+template <class T>
+void GlvVectorWidgetItem<T>::set_value(const T _value) {
+
+    widget->set_value(_value);
+
+}
+
+template <class T>
+GlvWidget<T>* GlvVectorWidgetItem<T>::get_widget() const {
+    return widget;
+}
+
+template <class T>
+void GlvVectorWidgetItem<T>::increment_index() {
+    index++;
+    update_label_index();
+}
+
+template <class T>
+void GlvVectorWidgetItem<T>::decrement_index() {
+    index--;
+    update_label_index();
+}
+
+template <class T>
+void GlvVectorWidgetItem<T>::update_label_index() {
+    label_index->setText(glv::toQString(index));
+}
+
+template <class T>
+void GlvVectorWidgetItem<T>::remove() {
+    parent->removeWidget(index);
+}
+
+#define _Tdata_ std::vector<T>
+
+class QVBoxLayout;
+template <class T>
+class GlvVectorWidgetItem;
+template <class Tvalue>
+class GlvWidget;
+
+/*! Widget to manage interface of std::vector.*/
+template <class T>
+class GlvVectorWidget : public GlvVectorWidget_base {
 
 protected:
 
-    T value;
+    std::vector<GlvVectorWidgetItem<T>*> widgets;
 
 public:
 
-    GlvStandardItem();
-    GlvStandardItem(const T& _value);
-    /*! Text can be explicitly set.*/
-    GlvStandardItem(const QString& text);
-    GlvStandardItem(const QString& text, const T& _value);
-    GlvStandardItem(const QIcon& icon, const QString& text, const T& _value);
+    GlvVectorWidget(_Tdata_ _vector = _Tdata_(), QWidget* _parent = 0);
+    ~GlvVectorWidget();
 
-    ~GlvStandardItem();
+    /*! Set vector.*/
+    void set_value(const _Tdata_& _vector);
+    /*! Get vector.*/
+    _Tdata_ get_value() const;
 
-    const T& get_value() const;
-    void set_value(const T& _value);
+    void pushValue(T _value);
+    /*! Reimplementation of virtual method.*/
+    void pushValue();
+    void popValue();
+    /*! New value at index \p i.*/
+    void insertValue(const unsigned int i);
+    /*! Resize vector at size \p i.*/
+    void resizeVector(const unsigned int i);
+    /*! Get widget of index \p i.*/
+    GlvWidget<T>* operator[] (const unsigned int i);
 
+private:
+
+    void valueChanged_slot();
+    void removeWidget(const unsigned int i);
+
+    friend class GlvVectorWidgetItem<T>;
 };
 
 template <class T>
-GlvStandardItem<T>::GlvStandardItem() :QStandardItem(), value(T()) {
+GlvVectorWidget<T>::GlvVectorWidget(_Tdata_ _vector, QWidget* _parent) : GlvVectorWidget_base(_parent) {
+
+    set_value(_vector);
 
 }
 
 template <class T>
-GlvStandardItem<T>::GlvStandardItem(const T& _value) : QStandardItem(glv::toQString(_value)), value(_value) {
+GlvVectorWidget<T>::~GlvVectorWidget() {
 
 }
 
 template <class T>
-GlvStandardItem<T>::GlvStandardItem(const QString& text) : QStandardItem(text), value(T()) {
+void GlvVectorWidget<T>::set_value(const _Tdata_& _vector) {
+
+    if (_vector.size() > Nelements_max) {
+        set_Nelements_max((int)_vector.size());
+    }
+
+    int N = (int)std::min(widgets.size(), _vector.size());
+
+    for (int i = 0; i < N; i++) {
+        widgets[i]->set_value(_vector[i]);
+    }
+
+    if (widgets.size() < _vector.size()) {
+        for (int i = N; i < _vector.size(); i++) {
+            pushValue(_vector[i]);
+        }
+    } else if (widgets.size() > _vector.size()) {
+        for (int i = N; i < widgets.size(); i++) {
+            layout_items->removeWidget(widgets[i]);
+            delete widgets[i];
+        }
+        widgets.resize(_vector.size());
+        resize_spinbox->setValue((int)widgets.size());
+        insert_spinbox->setMaximum((int)widgets.size());
+    }
+
+    if (_vector.empty()) {// If no vector item exists, then the vector is indicated as fully displayed for reading convenience
+        set_checked(true);
+    } else if (!QWidget::isVisible()) {// If a value is set before the widget is visible, and the vector widget is checkable, then the default display hides the vector items
+        set_checked(false);
+    }
 
 }
 
 template <class T>
-GlvStandardItem<T>::GlvStandardItem(const QString& text, const T& _value) : QStandardItem(text), value(_value) {
+_Tdata_ GlvVectorWidget<T>::get_value() const {
 
-}
-
-template <class T>
-GlvStandardItem<T>::GlvStandardItem(const QIcon& icon, const QString& text, const T& _value) : QStandardItem(icon, text), value(_value) {
-
-}
-
-template <class T>
-GlvStandardItem<T>::~GlvStandardItem() {
-
-}
-
-template <class T>
-const T& GlvStandardItem<T>::get_value() const {
-
+    _Tdata_ value(widgets.size());
+    for (int i = 0; i < widgets.size(); i++) {
+        value[i] = widgets[i]->get_value();
+    }
     return value;
 
 }
 
 template <class T>
-void GlvStandardItem<T>::set_value(const T& _value) {
+void GlvVectorWidget<T>::pushValue(T _value) {
 
-    value = _value;
+    if (widgets.size() < Nelements_max) {
+
+        GlvVectorWidgetItem<T>* widget = new GlvVectorWidgetItem<T>(_value, (int)widgets.size(), this);
+        widgets.push_back(widget);
+        layout_items->insertWidget((int)widgets.size() - 1, widget);
+        connect(widget, SIGNAL(valueChanged()), this, SLOT(valueChanged_slot()));
+        button_pop->setEnabled(true);
+
+        if (widgets.size() == Nelements_max) {
+            button_push->setEnabled(false);
+            button_insert->setEnabled(false);
+        }
+
+        resize_spinbox->setValue((int)widgets.size());
+        insert_spinbox->setMaximum((int)widgets.size());
+    }
+}
+
+template <class T>
+void GlvVectorWidget<T>::insertValue(const unsigned int i) {
+
+    if (widgets.size() < Nelements_max) {
+
+        unsigned int j = i;
+        if (j > (unsigned int)widgets.size()) {
+            j = (unsigned int)widgets.size();
+        }
+        GlvVectorWidgetItem<T>* widget = new GlvVectorWidgetItem<T>(T(), j, this);
+        layout_items->insertWidget(j, widget);
+        widgets.insert(widgets.begin() + j, widget);
+        connect(widget->get_widget(), SIGNAL(valueChanged()), this, SLOT(valueChanged_slot()));
+        button_pop->setEnabled(true);
+
+        for (unsigned int k = j + 1; k < widgets.size(); k++) {
+            widgets[k]->increment_index();
+        }
+
+        if (widgets.size() == Nelements_max) {
+            button_push->setEnabled(false);
+            button_insert->setEnabled(false);
+            resize_spinbox->setValue((int)widgets.size());
+            insert_spinbox->setMaximum((int)widgets.size());
+        }
+
+    }
 
 }
 
-/*! Specialization of QStandardItemModelMaker for std::map.*/
-template <class Tkey, class Tvalue>
-struct glv::tdata::QStandardItemModelMaker< std::map<Tkey, Tvalue> > {
-    static constexpr bool is_specialized = true;
-    typedef Tvalue Tdata_sub;
-private:
-    static QString get_root_text(unsigned int _size) {
-        return glv::toQString(SlvDataName< std::map<Tkey, Tvalue> >::name()) + " : " + QString::number(_size);
+template <class T>
+void GlvVectorWidget<T>::resizeVector(const unsigned int i) {
+
+    if (i != widgets.size()) {
+
+        _Tdata_ vector_ = get_value();
+        vector_.resize(std::min(i, Nelements_max));
+        set_value(vector_);
+
+        bool l_max = (widgets.size() == Nelements_max);
+        button_push->setEnabled(!l_max);
+        button_insert->setEnabled(!l_max);
+        resize_spinbox->setValue((int)widgets.size());
+        insert_spinbox->setMaximum((int)widgets.size());
     }
+
+    if (widgets.empty()) {
+        set_checked(true);// If no vector item exists, then the vector is indicated as fully displayed for reading convenience
+    }
+
+}
+
+template <class T>
+GlvWidget<T>* GlvVectorWidget<T>::operator[] (const unsigned int i) {
+    return widgets[i]->get_widget();
+}
+
+template <class T>
+void GlvVectorWidget<T>::pushValue() {
+
+    pushValue(T());
+
+}
+
+template <class T>
+void GlvVectorWidget<T>::popValue() {
+
+    if (!widgets.empty()) {
+        removeWidget((int)widgets.size() - 1);
+
+        if (widgets.size() < Nelements_max) {
+            button_push->setEnabled(true);
+            button_insert->setEnabled(true);
+        }
+
+        resize_spinbox->setValue((int)widgets.size());
+        insert_spinbox->setMaximum((int)widgets.size());
+    }
+
+}
+
+template <class T>
+void GlvVectorWidget<T>::valueChanged_slot() {
+
+    GlvVectorWidgetItem<T>* item = dynamic_cast<GlvVectorWidgetItem<T>*>(QObject::sender());
+    if (item) {
+        emit valueChanged(item->index);
+    }
+
+}
+
+template <class T>
+void GlvVectorWidget<T>::removeWidget(const unsigned int i) {
+
+    if (!widgets.empty()) {
+
+        layout_items->removeWidget(widgets[i]);
+        delete widgets[i];
+        widgets.erase(widgets.begin() + i);
+
+        for (unsigned int j = i; j < widgets.size(); j++) {
+            widgets[j]->decrement_index();
+        }
+    }
+
+    if (widgets.empty()) {
+        button_pop->setEnabled(false);
+        set_checked(true);// If no vector item exists, then the vector is indicated as fully displayed for reading convenience
+    }
+
+}
+
+#undef _Tdata_
+
+#define _Tdata_ std::array<T, N>
+
+/*! Widget to manage interface of std::vector.*/
+template <class T, size_t N>
+class GlvArrayWidget : public GlvVectorWidget<T> {
+
 public:
-    static void make(const std::map<Tkey, Tvalue>& _map, QStandardItemModel* _model, const QModelIndex _index = QModelIndex(), const Qt::ItemFlag _flag_additional = Qt::NoItemFlags) {
 
-        if (_model && (_index == QModelIndex() || _index.model() == _model)) {
+    GlvArrayWidget(_Tdata_ _array = _Tdata_(), QWidget* _parent = 0);
+    ~GlvArrayWidget();
 
-            glv::resize(_model, (unsigned int)_map.size(), 2, _index);
+    /*! Set vector.*/
+    void set_value(const _Tdata_& _array);
+    /*! Get vector.*/
+    _Tdata_ get_value() const;
 
-            QModelIndex index;
-            int i = 0;
-            for (typename std::map<Tkey, Tvalue>::const_iterator it = _map.begin(); it != _map.end(); ++it, i++) {
-                index = _model->index(i, 0, _index);
-                glv::tdata::toQStandardItem(it->first, _model->itemFromIndex(index));
-
-                _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() | _flag_additional);
-                
-                // If Tvalue is specialized, disable Tkey editing
-                static bool condition = glv::tdata::QStandardItemModelMaker<Tkey>::is_specialized || (glv::tdata::QStandardItemModelMaker<Tvalue>::is_specialized && !glv::tdata::l_allow_type_mismatch_edit);
-                // C4127
-                if (condition) {
-                    _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() ^ Qt::ItemIsEditable);
-                }
-                if (!std::is_same<Tkey, Tvalue>::value) {
-                    _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() | glv::tdata::type_mismatch_flag);
-                }
-
-                index = _model->index(i, 1, _index);
-                glv::tdata::toQStandardItem(it->second, _model->itemFromIndex(index));
-                _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() | _flag_additional);
-            }
-
-            if (_index != QModelIndex()) {
-                QString root_text = get_root_text((unsigned int)_map.size());
-                if (_model->itemFromIndex(_index)->text() != root_text) {
-                    _model->itemFromIndex(_index)->setText(root_text);
-                }
-            }
-
-        }
-
-    }
-
-    static std::map<Tkey, Tvalue> get_value(const QStandardItemModel* _model, const QModelIndex& _index, const int _Mrows, const int _Ncols) {
-
-        std::map<Tkey, Tvalue> map;
-
-        if (_index == QModelIndex() || _index.model() == _model) {
-
-            int N = (_Mrows == -1) ? _model->rowCount(_index) : std::min(_model->rowCount(_index), _Mrows);
-
-            if (_model->columnCount(_index) >= 2) {
-
-                QStandardItem* item;
-                Tkey key;
-                Tvalue value;
-                typename std::map<Tkey, Tvalue>::iterator it;
-                for (int i = 0; i < N; i++) {
-                    item = _model->itemFromIndex(_model->index(i, 0, _index));
-                    key = glv::tdata::fromQStandardItem<Tkey>(item);
-                    it = map.find(key);
-                    if (it == map.end()) {
-                        item = _model->itemFromIndex(_model->index(i, 1, _index));
-                        value = glv::tdata::fromQStandardItem<Tvalue>(item);
-                        map[key] = value;
-                    } else {
-                        // key already exists
-                    }
-                }
-
-            } else {
-                slv::flag::ISSUE(slv::flag::Critical, "std::map requires two columns in the model");
-            }
-
-        } else {
-            slv::flag::ISSUE(slv::flag::Critical, "index's model is different from the one it is supposed to belong to");
-        }
-
-        return map;
-    }
-
-    static std::vector<int> get_coordinates(QModelIndex& _index) {
-
-        std::vector<int> coordinates = glv::tdata::QStandardItemMaker<Tvalue>::get_coordinates(_index);
-        coordinates.insert(coordinates.begin(), _index.column());
-        coordinates.insert(coordinates.begin(), _index.row());
-
-        _index = _index.parent();
-
-        return coordinates;
-    }
+private:
+    using GlvVectorWidget<T>::pushValue;
+    using GlvVectorWidget<T>::popValue;
+    using GlvVectorWidget<T>::insertValue;
 
 };
 
-/*! Specialization of QStandardItemModelMaker for SlvPool.
-First column: label.
-Second colum: value.*/
-template <class Tvalue, class Tlabel>
-struct glv::tdata::QStandardItemModelMaker< SlvPool<Tvalue, Tlabel> > {
-    static constexpr bool is_specialized = true;
-    typedef Tvalue Tdata_sub;
-private:
-    static QString get_root_text(unsigned int _size) {
-        return glv::toQString(SlvDataName< SlvPool<Tvalue> >::name()) + " : " + QString::number(_size);
+template <class T, size_t N>
+GlvArrayWidget<T, N>::GlvArrayWidget(_Tdata_ _array, QWidget* _parent) : GlvVectorWidget<T>({}, _parent) {
+
+    this->buttons_group_widget->hide();
+
+    for (int i = 0; i < N; i++) {
+        pushValue();
+        this->widgets[i]->show_remove_button(false);
     }
+
+    set_value(_array);
+
+}
+
+template <class T, size_t N>
+GlvArrayWidget<T, N>::~GlvArrayWidget() {
+
+}
+
+template <class T, size_t N>
+void GlvArrayWidget<T, N>::set_value(const _Tdata_& _array) {
+
+    for (int i = 0; i < N; i++) {
+        this->widgets[i]->set_value(_array[i]);
+    }
+
+}
+
+template <class T, size_t N>
+_Tdata_ GlvArrayWidget<T, N>::get_value() const {
+
+    _Tdata_ value;
+    for (int i = 0; i < N; i++) {
+        value[i] = this->widgets[i]->get_value();
+    }
+    return value;
+
+}
+
+#undef _Tdata_
+
+// Do not enable if value_type is a container. GlvWidgetData_spec_std_container_container.h is used instead
+#define Tenable typename std::enable_if<!SlvIsContainer<T>::value || SlvIsMap<T>::value || std::is_same<T, std::string>::value>::type
+
+#define Tdata std::array<T, N>
+/*! GlvWidgetData specialization for template type: std::vector.*/
+template <class T, size_t N>
+class GlvWidgetData<Tdata, Tenable> : public GlvArrayWidget<T, N> {
+
 public:
-    static void make(const SlvPool<Tvalue, Tlabel>& _pool, QStandardItemModel* _model, const QModelIndex _index = QModelIndex(), const Qt::ItemFlag _flag_additional = Qt::NoItemFlags) {
-
-        if (_model && (_index == QModelIndex() || _index.model() == _model)) {
-
-            glv::resize(_model, (unsigned int)(_pool.psize()), 2, _index);
-
-            QModelIndex index;
-            for (unsigned int i = 0; i < _pool.psize(); i++) {
-                index = _model->index(i, 0, _index);
-                glv::tdata::toQStandardItem(_pool[i]->get_label(), _model->itemFromIndex(index));
-                _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() | _flag_additional);
-
-                // If Tvalue is specialized, disable Tkey editing
-                static bool condition = glv::tdata::QStandardItemModelMaker<Tlabel>::is_specialized || (glv::tdata::QStandardItemModelMaker<Tvalue>::is_specialized && !glv::tdata::l_allow_type_mismatch_edit);
-                // C4127
-                if (condition) {
-                    _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() ^ Qt::ItemIsEditable);
-                }
-                if (!std::is_same<Tlabel, Tvalue>::value) {
-                    _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() | glv::tdata::type_mismatch_flag);
-                }
-                index = _model->index(i, 1, _index);
-                glv::tdata::toQStandardItem(*_pool[i], _model->itemFromIndex(index));
-                _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() | _flag_additional);
-            }
-
-            if (_index != QModelIndex()) {
-                QString root_text = get_root_text((unsigned int)(_pool.psize()));
-                if (_model->itemFromIndex(_index)->text() != root_text) {
-                    _model->itemFromIndex(_index)->setText(root_text);
-                }
-            }
-
-        }
-
+    GlvWidgetData(Tdata _vector = Tdata(), QWidget* _parent = 0) :GlvArrayWidget<T, N>(_vector, _parent) {
+        this->set_checkable(true, QObject::tr("array"));
+        this->set_checked(false);
+        this->set_items_top_aligment(true);
     }
-
-    static SlvPool<Tvalue, Tlabel> get_value(const QStandardItemModel* _model, const QModelIndex& _index, const int _Mrows, const int _Ncols) {
-
-        SlvPool<Tvalue, Tlabel> pool;
-
-        if (_index == QModelIndex() || _index.model() == _model) {
-
-            int N = (_Mrows == -1) ? _model->rowCount(_index) : std::min(_model->rowCount(_index), _Mrows);
-
-            if (_model->columnCount(_index) >= 2) {
-
-                QStandardItem* item;
-                Tvalue* value;
-                for (int i = 0; i < N; i++) {
-                    item = _model->itemFromIndex(_model->index(i, 0, _index));
-                    value = pool.new_element(glv::tdata::fromQStandardItem<Tlabel>(item));
-                    item = _model->itemFromIndex(_model->index(i, 1, _index));
-                    *value = glv::tdata::fromQStandardItem<Tvalue>(item);
-                }
-
-            } else {
-                slv::flag::ISSUE(slv::flag::Critical, "SlvPool requires two columns in the model");
-            }
-
-        } else {
-            slv::flag::ISSUE(slv::flag::Critical, "index's model is different from the one it is supposed to belong to");
-        }
-
-        return pool;
-    }
-
-    static std::vector<int> get_coordinates(QModelIndex& _index) {
-
-        std::vector<int> coordinates = glv::tdata::QStandardItemMaker<Tvalue>::get_coordinates(_index);
-        coordinates.insert(coordinates.begin(), _index.column());
-        coordinates.insert(coordinates.begin(), _index.row());
-
-        _index = _index.parent();
-
-        return coordinates;
-    }
+    ~GlvWidgetData() {}
 
 };
 
-class QComboBox;
-class QWidget;
+template <class T, size_t N>
+struct GlvWidgetMakerConnect<Tdata, Tenable> {
+    static void connect(GlvWidgetData<Tdata>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
+        QObject::connect(_widget, SIGNAL(valueChanged(int)), _widget_connector, SLOT(valueChanged_slot(int)));
+    }
+};
 
-namespace glv {
+#undef Tdata
+#undef Tenable
 
-	/*! Create a QComboBox from a Tdata. Displayed values are the first template argument.*/
-	template <class Tdata>
-	QComboBox* toQComboBox(const Tdata& _data, QString _name = "", QWidget* _parent = 0);
-	/*! Assign a Tdata to a QComboBox. Displayed values are the first template argument.*/
-	template <class Tdata>
-	void toQComboBox(QComboBox* _combo_box, const Tdata& _data, QString _name = "");
+#if OPTION_WIDGET_DATA_CONTAINER_TABLE==1
+// Do not enable if value_type is a container. GlvWidgetData_spec_std_container_container.h is used instead
+#define Tenable typename std::enable_if<!SlvIsContainer<T>::value || SlvIsMap<T>::value || std::is_same<T, std::string>::value>::type
+#else
+#define Tenable typename std::enable_if<true>::type
+#endif
 
-}
+#define Tdata std::vector<T>
+/*! GlvWidgetData specialization for template type: std::vector.*/
+template <class T>
+class GlvWidgetData<Tdata, Tenable> : public GlvVectorWidget<T> {
 
-template <class Tdata>
-QComboBox* glv::toQComboBox(const Tdata& _data, QString _name, QWidget* _parent) {
+public:
+    GlvWidgetData(Tdata _vector = Tdata(), QWidget* _parent = 0) :GlvVectorWidget<T>(_vector, _parent) {
+        this->set_checkable(true);
+        if (!_vector.empty()) {
+            this->set_checked(false);
+        } else {
+            // If empty, leave checked so that it's easier to see that the vector widget is empty
+        }
+        this->set_items_top_aligment(true);
+    }
+    ~GlvWidgetData() {}
 
-	QComboBox* combo_box = new QComboBox(_parent);
-	toQComboBox(combo_box, _data, _name);
-	return combo_box;
+};
 
-}
+template <class T>
+struct GlvWidgetMakerConnect<Tdata, Tenable> {
+    static void connect(GlvWidgetData<Tdata>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
+        QObject::connect(_widget, SIGNAL(valueChanged(int)), _widget_connector, SLOT(valueChanged_slot(int)));
+    }
+};
 
-template <class Tdata>
-void glv::toQComboBox(QComboBox* _combo_box, const Tdata& _data, QString _name) {
-
-	QStandardItemModel* model = glv::tdata::toQStandardItemModel(_data);
-	_combo_box->clear();
-	_combo_box->setObjectName(_name);
-	_combo_box->setModel(model);
-
-}
+#undef Tdata
+#undef Tenable
 
 #endif
+
+template <class T1, class T2>
+std::ostream& operator<<(std::ostream& _os, const std::pair<T1, T2>& _pair) {
+    _os << "[" << _pair.first << " ; " << _pair.second << "]";
+    return _os;
+}
+
+template <class T1, class T2>
+std::istream& operator>>(std::istream& _is, std::pair<T1, T2>& _pair) {
+    _is >> _pair.first;
+    _is >> _pair.second;
+    return _is;
+}
+
+struct SlvCLI {
+
+	/*! Parse \p _argc and \p _argv and return the corresponding parametrization.*/
+	template <class Tparametrization>
+	static Tparametrization parse(int _argc, char* _argv[]);
+
+	struct Arguments;
+
+	/*! Parse \p _argc and \p _argv and apply to \p _parametrization.*/
+	template <class Tparametrization>
+	static std::pair<Arguments, SlvStatus> parse(Tparametrization& _parametrization, int _argc, char* _argv[]);
+	/*! Apply \p _arguments to \p _parametrization.
+	* If conflicts exist in the arguments, they are being filtered out of \p _arguments. Ex: redundant multiple parameter name correspondences.*/
+	template <class Tparametrization>
+	static SlvStatus parse(Tparametrization& _parametrization, Arguments& _arguments);
+
+	/*! Get the CLI line of arguments from a parametrization. If \p _l_CLI_mode is true : solo arguments (booleans) are parsed without 0/1 value.*/
+	template <class Tparametrization>
+	static std::string get_CLI(const Tparametrization& _parametrization, bool _l_CLI_mode);
+
+	/*! Returns true if \p _argv contains "-glove".*/
+	static bool has_glove(int _argc, char* _argv[]);
+
+	/*! Returns index of the argument being a json file. Found by file extension.*/
+	static int find_json_file(int _argc, char* _argv[]);
+
+	/*! Create argc/argv based on provided arguments.
+	* \p _l_CLI_mode : if true, '-' is necessary for name of the arguments. */
+	static std::pair<int, char**> get_arguments(const std::vector< std::pair<std::string, std::string> >& _parameter_arguments, const std::vector<std::string>& _solo_arguments, bool _l_CLI_mode = true);
+
+	struct Arguments {
+
+	public :
+
+		/*! Parameter identifier (starting with '-') and corresponding value.*/
+		typedef std::map<std::string, std::vector<std::string> > Tparameters;
+
+	private:
+
+		/*! Parameter identifier (starting with '-') and corresponding value.*/
+		Tparameters parameter_arguments;
+		/*! Arguments that are not parameters.*/
+		std::vector<std::string> solo_arguments;
+		/*! Single argument of the -glove cli input. Used for loading a parametrization.*/
+		std::string glove_argument;
+		/*! Parse arguments.*/
+		void parse(int _argc, char* _argv[]);
+		/*! Parse arguments, without '-' prefix indication for parameters name.
+		* This is why the name of the arguments \p _arg_names and \p _solo_arg_names must be provided.
+		* If they are not provided, then the arguments will be implicitly considered to be alternatively: name/value.*/
+		void parse(const std::string& _args, std::vector<std::string> _arg_names, std::vector<std::string> _solo_arg_names);
+		/*! Parsing status.*/
+		SlvStatus status;
+
+	public:
+
+		Arguments(int _argc, char* _argv[]);
+		Arguments(const std::string& _args, std::vector<std::string> _arg_names, std::vector<std::string> _solo_arg_names);
+		/*! Get arguments that are not parameters. Ex: "-option".*/
+		const std::vector<std::string>& get_solo_arguments() const;
+		/*! Get list of arguments and their corresponding value. Ex: "-param 17".
+		* Each parameter argument cas be accessed by its name (ex: "-param"), and return a vector of associated values.
+		* A vector is used in case multiple identical arguments are provided (ex: "-param -17 -param 5").*/
+		const Tparameters& get_parameter_arguments() const;
+		/*! Get single argument of the -glove cli input. Used for loading a parametrization.*/
+		const std::string& get_glove_argument() const;
+		/*! Return true if the instance does not store any parameter.*/
+		bool is_empty() const;
+		/*! Remove all arguments except those which name is in \p _arguments_remaining.*/
+		void filter(const std::vector<std::string>& _arguments_remaining);
+		/*! Get status of parsing.*/
+		SlvStatus get_status() const;
+		/*! Return the name of all the arguments (including solo arguments).*/
+		std::vector<std::string> get_arguments_name() const;
+	};
+
+private:
+
+	/*! Aggregate arguments using " ".*/
+	static void aggregate_quotes(std::vector<std::string>& _args, bool _l_remove_quotes);
+
+};
+
+template <class Tparametrization>
+Tparametrization SlvCLI::parse(int _argc, char* _argv[]) {
+
+	Tparametrization parametrization;
+	parse(parametrization, _argc, _argv);
+
+	return parametrization;
+}
+
+template <class Tparametrization>
+std::pair<SlvCLI::Arguments, SlvStatus> SlvCLI::parse(Tparametrization& _parametrization, int _argc, char* _argv[]) {
+
+	Arguments arguments(_argc, _argv);
+
+	SlvStatus status = parse(_parametrization, arguments);
+
+	return { arguments, status };
+}
+
+template <class Tparametrization>
+SlvStatus SlvCLI::parse(Tparametrization& _parametrization, Arguments& _arguments) {
+
+	SlvStatus status;
+
+	if (!_arguments.is_empty()) {
+
+		std::map<std::string, std::string> stream_values;
+		for (Arguments::Tparameters::const_iterator it = _arguments.get_parameter_arguments().begin(); it != _arguments.get_parameter_arguments().end(); ++it) {
+			stream_values[it->first] = it->second[0];
+		}
+
+		for (std::vector<std::string>::const_iterator it = _arguments.get_solo_arguments().begin(); it != _arguments.get_solo_arguments().end(); ++it) {
+			stream_values[*it] = "1";
+		}
+
+		std::pair< std::map<std::string, int>, std::vector<std::string> > conflicts_missing = _parametrization.set_stream_values(stream_values, false);
+		if (!conflicts_missing.first.empty()) {
+			status += SlvStatus(SlvStatus::statusType::warning, "Multiple parameter correspondences in parametrization.");
+
+			for (std::map<std::string, int>::const_iterator it = conflicts_missing.first.begin(); it != conflicts_missing.first.end(); ++it) {
+
+				status.add_sub_status(SlvStatus(SlvStatus::statusType::warning, it->first + " : " + slv::string::to_string(it->second) + " correspondences"));
+
+			}
+
+		}
+
+		_arguments.filter(conflicts_missing.second);
+
+	}
+
+	return status;
+}
+
+template <class Tparametrization>
+std::string SlvCLI::get_CLI(const Tparametrization& _parametrization, bool _l_CLI_mode) {
+
+	std::string CLI_line;
+
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = _parametrization.get_string_serialization_bool();
+
+	if (_l_CLI_mode) {
+		serialization = _parametrization.get_string_serialization_bool();
+	} else {
+		serialization.first = _parametrization.get_string_serialization();
+	}
+
+	std::pair<int, char**> cli_arguments = SlvCLI::get_arguments(serialization.first, serialization.second, false);
+
+	for (int i = 1; i < cli_arguments.first; i++) {
+		CLI_line += cli_arguments.second[i];
+		if (i < cli_arguments.first - 1) {
+			CLI_line += " ";
+		}
+	}
+
+	return CLI_line;
+}
 
 /*! Same as SlvPool, but get method creates the element if not found.
 * This auto get function only work if Tvalue has a constructor taking only Tlabel as argument. Otherwise, use SlvPool.*/
@@ -19112,6 +17831,8 @@ GlvParameterWidget<Tparam>::GlvParameterWidget(const SlvParameter<Tparam>& _para
 
     GlvDescribedWidget<Tparam>::append_tool_tip(get_rules_description(_parameter));
 
+    GlvDescribedWidget_base::set_alias(_parameter.get_alias());
+
 }
 
 template <class Tparam>
@@ -19174,6 +17895,7 @@ class QVBoxLayout;
 class QGridLayout;
 template <class Tparam>
 class GlvParameterWidget;
+class QPushButton;
 
 /*! Widget managing the parameters of classes SlvParametrization**.*/
 class GlvParametersWidget_base : public QGroupBox, public GlvSaveLoad {
@@ -19195,6 +17917,10 @@ private :
 	* If false (default), the widget can still be resized up to the last height before parameters size reduction.
 	* i.e.: Update height hint to fit to parameters widget.*/
 	bool l_adapt_max_height;
+	/*! Button to access line input to enter arguments.*/
+	QPushButton* parse_arguments_button;
+	/*! Widget containing find and parse features.*/
+	QWidget* options_widget;
 public:
 	enum LayoutType { Vertical, Grid };
 protected:
@@ -19203,6 +17929,10 @@ protected:
 	QGridLayout* grid_layout;
 	QVBoxLayout* main_layout;
 	QWidget* parameters_widget;
+	/*! CLI arguments.*/
+	std::string CLI_arguments_line;
+	/*! Parameter names parsed from the CLI argument line.*/
+	std::vector<std::string> CLI_parameters;
 
 	GlvParametersWidget_base();
 	virtual ~GlvParametersWidget_base();
@@ -19232,6 +17962,8 @@ public:
 	* If false (default), the widget can still be resized up to the last height before parameters size reduction.
 	* i.e.: Update height hint to fit to parameters widget.*/
 	void set_adapt_max_height(bool _l_adapt);
+	/*! Enable options: find and parse. Default is hidden.*/
+	void set_options_enabled(bool _l_enabled);
 
 protected:
 	/*! Add the parameter widget to the parameters.*/
@@ -19254,9 +17986,18 @@ private:
 	/*! Get number of parameters.*/
 	virtual int get_Nparameters() const = 0;
 	bool eventFilter(QObject* object, QEvent* _event);
+	/*! \p _l_explicit_bool_arg : whether bool argument must be defined with 0/1 value.*/
+	virtual SlvStatus parse_arguments(const std::string& _arguments, const bool _l_explicit_bool_arg, const bool _l_reset_default) = 0;
+	/*! Show only the parameters which name contains \p _filter. The other parameters are 'filtered'. Return true if all the parameters are filtered (ie: hidden).
+	* \p _l_exact_match : if true, filtering applies only when filter matches the parameter name. If false, filter applies on any parameter name containg \p _filter.
+	* \p _l_set_visible_only : if true, parameters can only be set to visible, not to hidden.*/
+	bool filter_parameters(std::string _filter, bool _l_exact_match, bool _l_set_visible_only);
 private slots:
 	/*! Show parameters or not.*/
 	void show_parameters(bool _l_show);
+	void parse_arguments();
+	/*! Show only the parameters which name contains \p _filter. The other parameters are 'filtered'. Return true if all the parameters are filtered (ie: hidden).*/
+	bool filter_parameters(QString _filter);
 signals:
 	/*! Emitted when the parameter named \p _parameter_name has changed.*/
 	void parameterChanged(std::string _parameter_name);
@@ -19495,6 +18236,11 @@ public:
     /*! Same as set_parametrization(), to be compliant with GlvWidgetMaker.*/
     void set_value(const Tparametrization& _parametrization);
 
+private:
+
+    /*! \p _l_explicit_bool_arg : whether bool argument must be defined with 0/1 value.*/
+    SlvStatus parse_arguments(const std::string& _arguments, const bool _l_explicit_bool_arg, const bool _l_reset_default);
+
     friend class GlvParametrizationSaveLoad<Tparametrization>;
 };
 
@@ -19539,6 +18285,38 @@ Tparametrization GlvParametrizationWidget<Tparametrization>::get_value() const {
 template <class Tparametrization>
 void GlvParametrizationWidget<Tparametrization>::set_value(const Tparametrization& _parametrization) {
     set_parametrization(_parametrization);
+}
+
+template <class Tparametrization>
+SlvStatus GlvParametrizationWidget<Tparametrization>::parse_arguments(const std::string& _arguments, const bool _l_explicit_bool_arg, const bool _l_reset_default) {
+
+    Tparametrization parametrization;
+    if (!_l_reset_default) {
+        parametrization = get_parametrization();
+    }
+    std::vector<std::string> arg_names;
+    std::vector<std::string> solo_arg_names;
+    if (!_l_explicit_bool_arg) {// If not explicit bool arg (ie: 0/1 value), then it is necessary to know the mapping of the parameters
+        std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = parametrization.get_string_serialization_bool();
+        for (auto it = serialization.first.begin(); it != serialization.first.end(); ++it) {
+            arg_names.push_back(it->first);
+        }
+        for (auto it = serialization.second.begin(); it != serialization.second.end(); ++it) {
+            solo_arg_names.push_back(it->first);
+        }
+    }
+    SlvCLI::Arguments arguments(_arguments, arg_names, solo_arg_names);
+    SlvStatus status = arguments.get_status();
+    if (status) {
+        std::vector<std::string> CLI_parameters = arguments.get_arguments_name();// Done before SlvCLI::parse because of arguments filtering
+        status = SlvCLI::parse(parametrization, arguments);
+        if (status) {
+            GlvParametersWidget_base::CLI_parameters = CLI_parameters;
+            set_parametrization(parametrization);
+            //GlvParametersWidget_base::CLI_arguments_line = SlvCLI::get_CLI(parametrization, _l_explicit_bool_arg);
+        }
+    }
+    return status;
 }
 
 class QWidget;
@@ -20461,6 +19239,7 @@ int GlvApp::main_recurrent(int _argc, char* _argv[], bool _l_threaded, Interface
 	}
 
 	GlvParametrizationDialog<Tparametrization> dialog;
+	dialog.get_parametrization_widget()->set_options_enabled(true);
 	GlvParametrizationSaveLoad<Tparametrization>* save_load_widget = new GlvParametrizationSaveLoad<Tparametrization>(dialog.get_parametrization_widget());
 
 	SlvCLI::Arguments arguments(_argc, _argv);
@@ -20509,10 +19288,16 @@ int GlvApp::main_recurrent(int _argc, char* _argv[], bool _l_threaded, Interface
 			parameter_arguments.push_back({ it->first, it->second[0] });
 		}
 
-		std::vector<std::string> solo_arguments = dialog.get_parametrization().get_string_serialization_bool().second;
-		slv::vector::add(solo_arguments, arguments.get_solo_arguments());
+		std::vector< std::pair<std::string, bool> > solo_arguments = dialog.get_parametrization().get_string_serialization_bool().second;
+		std::vector<std::string> solo_arguments_active;
+		for (auto it = solo_arguments.begin(); it != solo_arguments.end(); ++it) {
+			if (it->second) {
+				solo_arguments_active.push_back(it->first);
+			}
+		}
+		slv::vector::add(solo_arguments_active, arguments.get_solo_arguments());
 
-		std::pair<int, char**> cli_arguments = SlvCLI::get_arguments(parameter_arguments, solo_arguments);
+		std::pair<int, char**> cli_arguments = SlvCLI::get_arguments(parameter_arguments, solo_arguments_active);
 		cli_arguments.second[0] = _argv[0];
 
 		if (_l_threaded) {
@@ -20632,6 +19417,18 @@ int GlvApp::main(int _argc, char* _argv[], bool _l_auto_glove, bool _l_threaded,
 	}
 
 }
+
+glvm_parametrization(SlvParametersParserConfig, "Parameters parser",
+	arguments, std::string, "Arguments", "Arguments to parse", "",
+	CLI_mode, bool, "CLI mode", "* If enabled, the arguments are applied on a default parametrization.\
+	\nBoolean arguments are being activated if the parameter name is specified. There is no need to set a 0/1 value.\
+	\nHowever, deactivating a boolean parameter (activated by default) is not possible in this mode.\
+	\n* If disabled, the arguments are applied on the current parametrization.\
+	\nBoolean arguments can be enabled/disabled at will.", true,
+	show_parsed_argument_only, bool, "Show parsed args only", "Show only the arguments that are parsed in the 'arguments' line.", true
+)
+
+typedef GlvParametrizationDialog<SlvParametersParserConfig> GlvParametersParserConfigDialog;
 
 class QVBoxLayout;
 class QGridLayout;
@@ -21396,12 +20193,865 @@ void GlvParamListDialog<Tlist, Toption>::new_parametrization_dialog(const QStrin
 
 // Needed most of the time when using glv lists
 
+/*! Widget for std::pair.*/
+class GlvPairWidget_base : public QWidget {
+    Q_OBJECT
+protected:
+    GlvPairWidget_base(QWidget* _parent = 0) : QWidget(_parent) {}
+    virtual ~GlvPairWidget_base() {}
+public:
+    void set_editable(bool l_editable) {
+        QWidget::setEnabled(l_editable);
+    }
+signals:
+    /*! Emitted when first of pair is modified.*/
+    void valueChanged_first();
+    /*! Emitted when second of pair is modified.*/
+    void valueChanged_second();
+};
+
+template <class T>
+class GlvWidget;
+
+#define _Tdata_ std::pair<T1, T2>
+
+/*! Widget for std::pair.*/
+template <class T1, class T2>
+class GlvPairWidget : public GlvPairWidget_base {
+
+private:
+
+    GlvWidget<T1>* subwidget1;
+    GlvWidget<T2>* subwidget2;
+
+public:
+
+    GlvPairWidget(_Tdata_ _pair = _Tdata_(), QWidget* _parent = 0);
+    ~GlvPairWidget();
+
+    void set_pair(const _Tdata_ _pair);
+    _Tdata_ get_pair() const;
+
+};
+
+template <class T1, class T2>
+GlvPairWidget<T1, T2>::GlvPairWidget(_Tdata_ _pair, QWidget* _parent) : GlvPairWidget_base(_parent) {
+
+    QHBoxLayout* layout = new QHBoxLayout;
+    setLayout(layout);
+
+    layout->setContentsMargins(0, 0, 0, 0);
+
+    bool l_editable = true;
+    subwidget1 = new GlvWidget<T1>(_pair.first, l_editable, _parent);
+    connect(subwidget1, SIGNAL(valueChanged()), this, SIGNAL(valueChanged_first()));
+    layout->addWidget(subwidget1);
+    subwidget2 = new GlvWidget<T2>(_pair.second, l_editable, _parent);
+    connect(subwidget2, SIGNAL(valueChanged()), this, SIGNAL(valueChanged_second()));
+    layout->addWidget(subwidget2);
+
+}
+
+template <class T1, class T2>
+GlvPairWidget<T1, T2>::~GlvPairWidget() {
+
+}
+
+template <class T1, class T2>
+void GlvPairWidget<T1, T2>::set_pair(const _Tdata_ _pair) {
+
+    subwidget1->set_value(_pair.first);
+    subwidget2->set_value(_pair.second);
+
+}
+
+template <class T1, class T2>
+_Tdata_ GlvPairWidget<T1, T2>::get_pair() const {
+
+    _Tdata_ value;
+    value.first = subwidget1->get_value();
+    value.second = subwidget2->get_value();
+    return value;
+
+}
+
+#undef _Tdata_
+
+#define Tdata std::pair<T1, T2>
+/*! GlvWidgetData specialization for template type: std::pair.*/
+template <class T1, class T2>
+class GlvWidgetData<Tdata> : public GlvPairWidget<T1, T2> {
+
+public:
+    GlvWidgetData(Tdata _pair = Tdata(), QWidget* _parent = 0) :GlvPairWidget<T1, T2>(_pair, _parent) {}
+    ~GlvWidgetData() {}
+
+    Tdata get_value() const {
+        return GlvPairWidget<T1, T2>::get_pair();
+    }
+    void set_value(const Tdata& _value) {
+        return GlvPairWidget<T1, T2>::set_pair(_value);
+    }
+
+};
+
+template <class T1, class T2>
+struct GlvWidgetMakerConnect<Tdata> {
+    static void connect(GlvWidgetData<Tdata>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
+        QObject::connect(_widget, SIGNAL(valueChanged_first()), _widget_connector, SLOT(valueChanged_slot()));
+        QObject::connect(_widget, SIGNAL(valueChanged_second()), _widget_connector, SLOT(valueChanged_slot()));
+    }
+};
+
+#undef Tdata
+
+class QVBoxLayout;
+class QHBoxLayout;
+class QPushButton;
+class QGroupBox;
+
+class GlvMapWidget_base : public QWidget {
+
+    Q_OBJECT
+
+private:
+
+    QWidget* widget_items;
+    QPushButton* button_insert;
+    QWidget* insert_widget;
+    QGroupBox* map_widget;
+
+protected:
+
+    QGroupBox* buttons_widget;
+    QVBoxLayout* layout_items;
+    QHBoxLayout* insert_layout;
+
+    QWidget* insert_key_widget;
+
+    GlvMapWidget_base(QWidget* _parent = 0);
+    virtual ~GlvMapWidget_base();
+
+public:
+
+    void set_editable(bool _l_editable);
+    /*! Possibility to hide vector elements or not using checkable button.*/
+    void set_checkable(bool _l_checkable);
+    /*! Show/hide vector elements by collapsing the group box.*/
+    void set_checked(bool _l_checked);
+    /*! Align vector items to top. Default is false.*/
+    void set_items_top_aligment(bool _l_top);
+
+protected :
+
+    /*! To avoid to include QGroupBox in GlvMapWidget*/
+    void edit_set_checked(bool l_check);
+
+protected slots:
+
+    virtual void valueChanged_slot() = 0;
+
+private slots:
+
+    virtual void insertValue() = 0;
+    void show_map_items(bool _l_show);
+    void show_map_edit(bool _l_show);
+    
+signals:
+    /*! Emitted when the value of the \p index-th widget is modified.*/
+    void valueChanged(int _index);
+};
+
+class QHBoxLayout;
+class QLabel;
+class QPushButton;
+
+/*! Item widget for GlvMapWidget.*/
+class GlvMapWidgetItem_base : public QWidget {
+
+    Q_OBJECT
+
+protected:
+
+    QHBoxLayout* layout;
+    /*! Index of the widget in its GlvMapWidget.*/
+    unsigned int index;
+    QPushButton* remove_button;
+
+    GlvMapWidgetItem_base();
+    virtual ~GlvMapWidgetItem_base();
+
+protected slots:
+
+    virtual void remove() = 0;
+
+signals:
+    void valueChanged();
+};
+
+template <class T>
+class GlvWidget;
+template <class Tkey, class Tvalue, class Tcompare>
+class GlvMapWidget;
+
+/*! Item widget for GlvMapWidget.*/
+template <class Tkey, class Tvalue, class Tcompare>
+class GlvMapWidgetItem : public GlvMapWidgetItem_base {
+
+private:
+
+    /*! Widget of the key.*/
+    GlvWidget<Tkey>* key_widget;
+    /*! Widget of the data.*/
+    GlvWidget<Tvalue>* value_widget;
+    /*! Map widget the item belongs to.*/
+    GlvMapWidget<Tkey, Tvalue, Tcompare>* parent;
+
+private:
+
+    /*! \p _key : Key.
+    * \p _value : Initialization value.
+    * \p _index : index in GlvMapWidget.*
+    * \p _parent : Vector widget the item belongs to.*/
+    GlvMapWidgetItem(const Tkey& _key, const Tvalue& _value, const unsigned int _index, GlvMapWidget<Tkey, Tvalue, Tcompare>* _parent);
+    ~GlvMapWidgetItem();
+
+    Tkey get_key() const;
+    void set_key(const Tkey _key);
+    Tvalue get_value() const;
+    void set_value(const Tvalue _value);
+    GlvWidget<Tkey>* get_key_widget() const;
+    GlvWidget<Tvalue>* get_value_widget() const;
+    void increment_index();
+    void decrement_index();
+
+    /*! Remove in GlvMapWidget at index contained in the instance.*/
+    void remove();
+
+    friend class GlvMapWidget<Tkey, Tvalue, Tcompare>;
+};
+
+template <class Tkey, class Tvalue, class Tcompare>
+GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::GlvMapWidgetItem(const Tkey& _key, const Tvalue& _value, const unsigned int _index, GlvMapWidget<Tkey, Tvalue, Tcompare>* _parent) {
+
+    key_widget = new GlvWidget<Tkey>(_key);
+    key_widget->setSizePolicy(QSizePolicy::Policy::Fixed, QSizePolicy::Policy::Preferred);
+    value_widget = new GlvWidget<Tvalue>(_value);
+    value_widget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    index = _index;
+    parent = _parent;
+
+    remove_button = new QPushButton(tr("x"));
+    remove_button->setFixedWidth(30);
+    QString info = QString(tr("Erase the element"));
+    remove_button->setWhatsThis(info);
+    remove_button->setToolTip(info);
+    layout->addWidget(key_widget);
+    layout->addWidget(value_widget);
+    layout->addWidget(remove_button);
+
+    connect(remove_button, SIGNAL(clicked()), this, SLOT(remove()));
+    connect(value_widget, SIGNAL(valueChanged()), this, SIGNAL(valueChanged()));
+
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::~GlvMapWidgetItem() {
+
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+Tkey GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::get_key() const {
+
+    return key_widget->get_value();
+
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+void GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::set_key(const Tkey _key) {
+
+    key_widget->set_value(_key);
+
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+Tvalue GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::get_value() const {
+
+    return value_widget->get_value();
+
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+void GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::set_value(const Tvalue _value) {
+
+    value_widget->set_value(_value);
+
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+GlvWidget<Tkey>* GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::get_key_widget() const {
+    return key_widget;
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+GlvWidget<Tvalue>* GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::get_value_widget() const {
+    return value_widget;
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+void GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::increment_index() {
+    index++;
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+void GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::decrement_index() {
+    index--;
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+void GlvMapWidgetItem<Tkey, Tvalue, Tcompare>::remove() {
+    parent->removeWidget(index);
+}
+
+#define _Tdata_ std::map<Tkey, Tvalue>
+
+class QVBoxLayout;
+template <class Tkey, class Tvalue, class Tcompare>
+class GlvMapWidgetItem;
+template <class Tvalue>
+class GlvWidget;
+
+/*! Widget to manage interface of std::map.*/
+template <class Tkey, class Tvalue, class Tcompare = std::less<Tkey> >
+class GlvMapWidget : public GlvMapWidget_base {
+
+private:
+
+    std::vector<GlvMapWidgetItem<Tkey, Tvalue, Tcompare>*> widgets;
+
+    Tcompare compare_function;
+
+    bool l_editable_key;
+
+public:
+
+    GlvMapWidget(_Tdata_ _map = _Tdata_(), QWidget* _parent = 0);
+    ~GlvMapWidget();
+
+    /*! Set map.*/
+    void set_value(const _Tdata_& _map);
+    /*! Get map.*/
+    _Tdata_ get_value() const;
+
+    /*! Whether key is editable or not (default: false).*/
+    void set_key_editable(bool _l_editable);
+
+    /*! New value at current key.*/
+    void insertValue();
+    /*! Return true if inserted, false otherwise (key already exsists).*/
+    bool insertValue(const Tkey& _key, const Tvalue& _value);
+
+    /*! Get widget of key \p _key.*/
+    GlvWidget<Tvalue>* operator[] (const Tkey _key);
+
+private:
+
+    void insertValue(const int _i, const Tkey& _key, const Tvalue& _value);
+
+    void valueChanged_slot();
+    typename std::vector<GlvMapWidgetItem<Tkey, Tvalue, Tcompare>*>::const_iterator removeWidget(const unsigned int i);
+    /*! Return index of the corresponding key. Second of pair for existence of the key (true).*/
+    std::pair<int, bool> find(const Tkey& _key) const;
+
+    friend class GlvMapWidgetItem<Tkey, Tvalue, Tcompare>;
+};
+
+template <class Tkey, class Tvalue, class Tcompare>
+GlvMapWidget<Tkey, Tvalue, Tcompare>::GlvMapWidget(_Tdata_ _map, QWidget* _parent) : GlvMapWidget_base(_parent) {
+
+    /*! Widget of the key for insert.*/
+    insert_key_widget = new GlvWidget<Tkey>();
+    QString info = QString(tr("Key"));
+    insert_key_widget->setWhatsThis(info);
+    insert_key_widget->setToolTip(info);
+    insert_key_widget->setSizePolicy(QSizePolicy::Policy::Fixed, QSizePolicy::Policy::Preferred);
+    this->insert_layout->addWidget(insert_key_widget);
+    l_editable_key = false;
+    set_value(_map);
+
+    edit_set_checked(false);
+
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+GlvMapWidget<Tkey, Tvalue, Tcompare>::~GlvMapWidget() {
+
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+void GlvMapWidget<Tkey, Tvalue, Tcompare>::set_value(const _Tdata_& _map) {
+
+    compare_function = _map.key_comp();
+
+    for (typename std::vector<GlvMapWidgetItem<Tkey, Tvalue, Tcompare>*>::const_iterator it = widgets.begin(); it != widgets.end();) {
+
+        if (_map.find((*it)->get_key_widget()->get_value()) == _map.end()) {
+            it = removeWidget((*it)->index);
+        } else {
+            ++it;
+        }
+
+    }
+
+    std::pair<int, bool> index;
+    for (typename _Tdata_::const_iterator it = _map.begin(); it != _map.end(); ++it) {
+
+        index = find(it->first);
+        if (index.second) {
+            widgets[index.first]->get_value_widget()->set_value(it->second);
+        } else {
+            insertValue(index.first, it->first, it->second);
+        }
+
+    }
+
+    if (_map.empty()) {// If no map item exists, then the map is indicated as fully displayed for reading convenience
+        set_checked(true);
+    } else if (!QWidget::isVisible()) {// If a value is set before the widget is visible, and the map widget is checkable, then the default display hides the map items
+        set_checked(false);
+    }
+
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+_Tdata_ GlvMapWidget<Tkey, Tvalue, Tcompare>::get_value() const {
+
+    _Tdata_ value;
+    for (int i = 0; i < widgets.size(); i++) {
+        value[widgets[i]->get_key()] = widgets[i]->get_value();
+    }
+    return value;
+
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+void GlvMapWidget<Tkey, Tvalue, Tcompare>::set_key_editable(bool _l_editable) {
+
+    l_editable_key = _l_editable;
+
+    for (int i = 0; i < widgets.size(); i++) {
+        widgets[i]->get_key_widget()->set_editable(l_editable_key);
+    }
+
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+void GlvMapWidget<Tkey, Tvalue, Tcompare>::insertValue() {
+
+    Tkey key = static_cast<GlvWidget<Tkey>*>(insert_key_widget)->get_value();
+
+    insertValue(key, Tvalue());
+
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+bool GlvMapWidget<Tkey, Tvalue, Tcompare>::insertValue(const Tkey& _key, const Tvalue& _value) {
+
+    std::pair<int, bool> index = find(_key);
+
+    if (!index.second) {
+        insertValue(index.first, _key, _value);
+        return true;
+    } else {
+        return false;
+    }
+
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+void GlvMapWidget<Tkey, Tvalue, Tcompare>::insertValue(const int _i, const Tkey& _key, const Tvalue& _value) {
+
+    GlvMapWidgetItem<Tkey, Tvalue, Tcompare>* widget = new GlvMapWidgetItem<Tkey, Tvalue, Tcompare>(_key, _value, _i, this);
+    widget->get_key_widget()->set_editable(l_editable_key);
+    layout_items->insertWidget(_i, widget);
+    widgets.insert(widgets.begin() + _i, widget);
+    connect(widget, SIGNAL(valueChanged()), this, SLOT(valueChanged_slot()));
+
+    for (unsigned int k = _i + 1; k < widgets.size(); k++) {
+        widgets[k]->increment_index();
+    }
+
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+GlvWidget<Tvalue>* GlvMapWidget<Tkey, Tvalue, Tcompare>::operator[] (const Tkey _key) {
+
+    std::pair<int, bool> index = find(_key);
+
+    if (index.second) {
+        return (*this)[index.first];
+    } else {
+        return NULL;
+    }
+
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+void GlvMapWidget<Tkey, Tvalue, Tcompare>::valueChanged_slot() {
+
+    GlvMapWidgetItem<Tkey, Tvalue, Tcompare>* item = dynamic_cast<GlvMapWidgetItem<Tkey, Tvalue, Tcompare>*>(QObject::sender());
+    if (item) {
+        emit valueChanged(item->index);
+    }
+
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+typename std::vector<GlvMapWidgetItem<Tkey, Tvalue, Tcompare>*>::const_iterator GlvMapWidget<Tkey, Tvalue, Tcompare>::removeWidget(const unsigned int i) {
+
+    typename std::vector<GlvMapWidgetItem<Tkey, Tvalue, Tcompare>*>::const_iterator it;
+
+    if (!widgets.empty()) {
+
+        layout_items->removeWidget(widgets[i]);
+        delete widgets[i];
+        it = widgets.erase(widgets.begin() + i);
+
+        for (unsigned int j = i; j < widgets.size(); j++) {
+            widgets[j]->decrement_index();
+        }
+    } else {
+        it = widgets.end();
+    }
+
+    if (widgets.empty()) {
+        set_checked(true);// If no map item exists, then the map is indicated as fully displayed for reading convenience
+    }
+
+    return it;
+}
+
+template <class Tkey, class Tvalue, class Tcompare>
+std::pair<int, bool> GlvMapWidget<Tkey, Tvalue, Tcompare>::find(const Tkey& _key) const {
+
+    std::pair<int, bool> result(0, false);
+
+    bool l_found = false;
+    for (typename std::vector<GlvMapWidgetItem<Tkey, Tvalue, Tcompare>*>::const_iterator it = widgets.begin(); it != widgets.end() && !l_found; ++it, result.first++) {
+        l_found = !compare_function((*it)->get_key_widget()->get_value(), _key);
+        if (l_found) {
+            result.second = ((*it)->get_key_widget()->get_value() == _key);
+        }
+    }
+
+    if (l_found) result.first--;
+
+    return result;
+
+}
+
+#undef _Tdata_
+
+#define Tdata std::map<Tkey, Tvalue>
+/*! GlvWidgetData specialization for template type: std::map.*/
+template <class Tkey, class Tvalue>
+class GlvWidgetData<Tdata> : public GlvMapWidget<Tkey, Tvalue> {
+
+public:
+    GlvWidgetData(Tdata _map = Tdata(), QWidget* _parent = 0) :GlvMapWidget<Tkey, Tvalue>(_map, _parent) {
+        this->set_checkable(true);
+        if (!_map.empty()) {
+            this->set_checked(false);
+        } else {
+            // If empty, leave checked so that it's easier to see that the vector widget is empty
+        }
+        this->set_items_top_aligment(true);
+    }
+    ~GlvWidgetData() {}
+
+};
+
+template <class Tkey, class Tvalue>
+struct GlvWidgetMakerConnect<Tdata> {
+    static void connect(GlvWidgetData<Tdata>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
+        QObject::connect(_widget, SIGNAL(valueChanged(int)), _widget_connector, SLOT(valueChanged_slot(int)));
+    }
+};
+
+#undef Tdata
+
+class GlvEnumWidget_base : public QComboBox {
+protected:
+    GlvEnumWidget_base(QWidget* _parent = 0) : QComboBox(_parent) {}
+    virtual ~GlvEnumWidget_base() {}
+public:
+    void set_editable(bool l_editable) {
+        QComboBox::setEnabled(l_editable);
+    }
+};
+
+template <class T, typename = void>
+class GlvEnumWidget;
+
+/*! Widget managing an enum type.
+* The enum must be created using the macro: glvm_SlvEnum. See sample001 for example.*/
+template <class Tenum>
+class GlvEnumWidget<Tenum, typename std::enable_if<std::is_enum<Tenum>::value>::type> : public GlvEnumWidget_base {
+
+public:
+
+    GlvEnumWidget(Tenum _enum = Tenum(), QWidget* _parent = 0);
+    ~GlvEnumWidget();
+
+    /*! Set the enum value.*/
+    void set_value(const Tenum _enum);
+    /*! Get the enum value.*/
+    Tenum get_value() const;
+
+};
+
+template <class Tenum>
+GlvEnumWidget<Tenum, typename std::enable_if<std::is_enum<Tenum>::value>::type>::GlvEnumWidget(Tenum _enum, QWidget* _parent) : GlvEnumWidget_base(_parent) {
+
+    for (unsigned int i = 0; i < SlvEnum<Tenum>::size(); i++) {
+        QString enum_name = glv::toQString(SlvEnum<Tenum>::get_name(i));
+        QComboBox::addItem(enum_name);
+    }
+    set_value(_enum);
+
+}
+
+template <class Tenum>
+GlvEnumWidget<Tenum, typename std::enable_if<std::is_enum<Tenum>::value>::type>::~GlvEnumWidget() {
+
+}
+
+template <class Tenum>
+void GlvEnumWidget<Tenum, typename std::enable_if<std::is_enum<Tenum>::value>::type>::set_value(const Tenum _enum) {
+
+    QComboBox::setCurrentIndex(SlvEnum<Tenum>::enum_positions().at(_enum));
+
+}
+
+template <class Tenum>
+Tenum GlvEnumWidget<Tenum, typename std::enable_if<std::is_enum<Tenum>::value>::type>::get_value() const {
+
+    return SlvEnum<Tenum>::enum_positions_inv()[QComboBox::currentIndex()];
+
+}
+
+/*! GlvWidgetData for enum type.*/
+template <class Tdata>
+class GlvWidgetData<Tdata, typename std::enable_if<std::is_enum<Tdata>::value>::type> : public GlvEnumWidget<Tdata> {
+
+public:
+    GlvWidgetData(Tdata _enum = Tdata(), QWidget* _parent = 0) :GlvEnumWidget<Tdata>(_enum, _parent) {}
+    ~GlvWidgetData() {}
+
+};
+
+template <class Tdata>
+struct GlvWidgetMakerConnect<Tdata, typename std::enable_if<std::is_enum<Tdata>::value>::type> {
+    static void connect(GlvWidgetData<Tdata>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
+        QObject::connect(_widget, SIGNAL(currentIndexChanged(int)), _widget_connector, SLOT(valueChanged_slot(int)));
+    }
+};
+
+#endif
+
+/*! Class managing a value ranging in [0, 1].*/
+class SlvProportion : public SlvIOS {
+
+public:
+
+    typedef double Tvalue;
+
+private:
+
+    Tvalue value;
+
+public:
+
+    SlvProportion(Tvalue _value = 0.);
+    ~SlvProportion();
+
+    /*! Cast SlvProportion to value type.*/
+    operator Tvalue() const;
+
+    /*! Assign a \p _value to the instance.*/
+    SlvProportion& operator=(const Tvalue& _value);
+
+    bool readB(std::ifstream& _input_file);
+    void writeB(std::ofstream& _output_file) const;
+
+private:
+
+    void istream(std::istream& _is);
+    void ostream(std::ostream& _os) const;
+
+};
+
+#ifndef GLOVE_DISABLE_QT
+
+class QSlider;
+class QLabel;
+
+/*! Widget managing a ratio value SlvProportion.
+* The value is in the range [0, 1].
+* The interaction can be done using a slider or a direct value input.*/
+class GlvProportionWidget : public QWidget {
+
+    Q_OBJECT
+
+private:
+
+    QDoubleSpinBox* value_widget;
+    QLabel* percentage_label;
+    QSlider* slider;
+
+    int slider_size;
+
+public:
+
+    /*! \p _proportion : initial value.
+    * \p _slider_size : number of sampled values for the slider.*/
+    GlvProportionWidget(SlvProportion _proportion = 0, int _slider_size = 100, QWidget* _parent = 0);
+    ~GlvProportionWidget();
+
+    SlvProportion get_value() const;
+
+    /*! Set the number of sampled values for the slider.*/
+    void set_slider_size(int _slider_size);
+
+    void set_editable(bool l_editable);
+
+public slots:
+
+    void set_value(const SlvProportion& _proportion);
+
+private slots:
+
+    void set_value_to_spinbox(int _value);
+    void set_value_to_slider(double _value);
+    void valueChanged_slot(double _value);
+
+signals:
+    void valueChanged(double _value);
+
+};
+
+#define Tdata SlvProportion
+
+/*! GlvWidgetData for type SlvProportion.*/
+template <>
+class GlvWidgetData<Tdata> : public GlvProportionWidget {
+
+public:
+    GlvWidgetData(Tdata _ratio = Tdata(), QWidget* _parent = 0);
+    ~GlvWidgetData();
+
+};
+
+template <>
+struct GlvWidgetMakerConnect<Tdata> {
+    static void connect(GlvWidgetData<Tdata>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
+        QObject::connect(_widget, SIGNAL(valueChanged(double)), _widget_connector, SLOT(valueChanged_slot(double)));
+    }
+};
+
+#undef Tdata
+
+class QLineEdit;
+class QPushButton;
+class QLabel;
+class QHBoxLayout;
+
+/*! Widget for selecting a directory.*/
+class GlvOpenDirectory : public QWidget {
+
+    Q_OBJECT
+
+private:
+
+    QLineEdit* line_edit;
+    QPushButton* push_button;
+    QLabel* status;
+    /*! Whether a valid directory has been selected or not.*/
+    bool l_ready;
+
+public:
+
+    /*! \p _directory : default directory.*/
+    GlvOpenDirectory(SlvDirectory _directory, QWidget* _parent = 0);
+    /*! \p _default : default directory path.*/
+    GlvOpenDirectory(QString _default = "", QWidget* _parent = 0);
+    ~GlvOpenDirectory();
+
+    /*! Return directory item. Check if is_ready() before using returned value.*/
+    SlvDirectory get_directory() const;
+
+    /*! Whether a valid directory has been selected or not.*/
+    bool is_ready() const;
+    /*! Makes line edit read-only or not. Shows/hides the open directory button.*/
+    void set_editable(bool l_editable);
+
+private:
+
+    /*! Check if directory is valid.*/
+    void update_readiness();
+
+public slots:
+    /*! Opens QFileDialog to select a directory.*/
+    void getExistingDirectory();
+    /*! Set directory item by editing QLineEdit. If directory is valid, sets instance as ready.*/
+    void set_directory(const SlvDirectory& _directory);
+
+private slots:
+
+    void directory_changed_slot(const QString& _directory_path);
+
+signals:
+
+    /*! Emitted when QLineEdit changes.*/
+    void directory_changed(const QString& _directory_path);
+
+};
+
+#define Tdata SlvDirectory
+
+/*! GlvWidgetData for type SlvDirectory.*/
+template <>
+class GlvWidgetData<Tdata> : public GlvOpenDirectory {
+
+public:
+	GlvWidgetData(Tdata _file = Tdata(), QWidget* _parent = 0);
+	~GlvWidgetData();
+
+	Tdata get_value() const {
+		return GlvOpenDirectory::get_directory();
+	}
+	void set_value(const Tdata& _value) {
+		return GlvOpenDirectory::set_directory(_value);
+	}
+
+};
+
+template <>
+struct GlvWidgetMakerConnect<Tdata> {
+	static void connect(GlvWidgetData<Tdata>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
+		QObject::connect(_widget, SIGNAL(directory_changed(const QString&)), _widget_connector, SLOT(valueChanged_slot(const QString&)));
+	}
+};
+
+#undef Tdata
+
 /*! GlvWidgetData for type SlvParametrization*/
 template <class Tparametrization>
 class GlvWidgetData<Tparametrization, typename std::enable_if<std::is_base_of<SlvParametrization_base, Tparametrization>::value>::type> : public GlvParametrizationWidget<Tparametrization> {
 
 public:
     GlvWidgetData(Tparametrization _value = Tparametrization(), QWidget* _parent = 0) :GlvParametrizationWidget<Tparametrization>(_value, true, _parent) {
+        QWidget::setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
         this->set_checkable_collapse(true);
         this->set_scrollable(false);
     }
@@ -21545,6 +21195,540 @@ GlvParametrizationWidget<Tparametrization>* GlvWidgetAuto::make_parametrization(
 
     GlvParametrizationWidget<Tparametrization>* widget = new GlvParametrizationWidget<Tparametrization>(_parametrization, l_editable, _parent);
     return widget;
+}
+
+// Containers, except std::map, std::unordered_map and std::string
+#define Tenable typename std::enable_if<SlvIsContainer<Tcontainer>::value && !SlvIsMap<Tcontainer>::value && !std::is_same<Tcontainer, std::string>::value>::type
+#define Tenable_sub typename std::enable_if<SlvIsContainer<typename _Tcontainer::value_type>::value && !SlvIsMap<typename _Tcontainer::value_type>::value && !std::is_same<typename _Tcontainer::value_type, std::string>::value>::type
+
+/*! Specialization of QStandardItemModelMaker for std::vector, std::list, std::deque, std::array.*/
+template <class Tcontainer>
+struct glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable> {
+    static constexpr bool is_specialized = true;
+private:
+    template <class _Tcontainer, typename = void>
+    struct ContainerHandler;
+    template <class _Tcontainer, typename = void>
+    struct ContainerHandlerResize;
+public:
+    typedef typename ContainerHandler<Tcontainer>::Tdata_sub Tdata_sub;
+private:
+    static QString get_root_text(unsigned int _Mrows, unsigned int _Ncols);
+public:
+    static void make(const Tcontainer& _container, QStandardItemModel* _model, const QModelIndex _index = QModelIndex(), const Qt::ItemFlag _flag_additional = Qt::NoItemFlags);
+
+    static Tcontainer get_value(const QStandardItemModel* _model, const QModelIndex& _index, const int _Mrows, const int _Ncols);
+
+    static std::vector<int> get_coordinates(QModelIndex& _index);
+};
+
+template <class Tcontainer>
+template <class _Tcontainer, typename>
+struct glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable>::ContainerHandlerResize {
+    static void resize(_Tcontainer& _container, int _size) {
+        _container.resize(_size);
+    }
+};
+
+glvm_SlvHasMethodSignature(SlvHasResize, void, resize, 0)
+
+template <class Tcontainer>
+template <class _Tcontainer>
+struct glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable>::ContainerHandlerResize<_Tcontainer, typename std::enable_if<!SlvHasResize<_Tcontainer>::value>::type> {
+    static void resize(_Tcontainer& _container, int _size) {
+        
+    }
+};
+
+template <class Tcontainer>
+template <class _Tcontainer, typename>
+struct glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable>::ContainerHandler {
+
+    typedef typename Tcontainer::value_type Tdata_sub;
+
+    static std::size_t get_size(const Tcontainer& _container) {
+        return 1;
+    }
+
+    static void set_model(const typename Tcontainer::value_type& _value, int _i, QStandardItemModel* _model, const QModelIndex& _index, const Qt::ItemFlag _flag_additional) {
+
+        QModelIndex index;
+        index = _model->index(_i, 0, _index);
+        glv::tdata::toQStandardItem(_value, _model->itemFromIndex(index));
+        _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() | _flag_additional);
+
+    }
+
+    static void resize(typename Tcontainer::value_type& _value, int _Ncols) {
+
+    }
+
+    static void get_value(typename Tcontainer::value_type& _value, int _i, const QStandardItemModel* _model, const QModelIndex& _index) {
+
+        QStandardItem* item = _model->itemFromIndex(_model->index(_i, 0, _index));
+        _value = glv::tdata::fromQStandardItem<typename Tcontainer::value_type>(item);
+
+    }
+
+    static void add_coordinate(std::vector<int>& _coordinates, QModelIndex& _index) {
+
+    }
+
+};
+
+template <class Tcontainer>
+template <class _Tcontainer>
+struct glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable>::ContainerHandler<_Tcontainer, Tenable_sub> {
+
+    typedef typename Tcontainer::value_type::value_type Tdata_sub;
+
+    static std::size_t get_size(const Tcontainer& _data) {
+        std::size_t size = 0;
+        for (typename Tcontainer::const_iterator it = _data.begin(); it != _data.end(); ++it) {
+            if (it->size() > size) {
+                size = it->size();
+            }
+        }
+        return size;
+    }
+
+    static void set_model(const typename Tcontainer::value_type& _value, int _i, QStandardItemModel* _model, const QModelIndex& _index, const Qt::ItemFlag _flag_additional) {
+
+        QModelIndex index;
+        int j = 0;
+        for (typename Tcontainer::value_type::const_iterator it = _value.begin(); it != _value.end(); ++it, j++) {
+            index = _model->index(_i, j, _index);
+            glv::tdata::toQStandardItem(*it, _model->itemFromIndex(index));
+            _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() | _flag_additional);
+        }
+
+    }
+
+    static void resize(typename Tcontainer::value_type& _value, int _Ncols) {
+
+        ContainerHandlerResize<typename Tcontainer::value_type>::resize(_value, _Ncols);
+
+    }
+
+    static void get_value(typename Tcontainer::value_type& _value, int _i, const QStandardItemModel* _model, const QModelIndex& _index) {
+
+        QStandardItem* item;
+        int j = 0;
+        for (typename Tcontainer::value_type::iterator it = _value.begin(); it != _value.end(); ++it, j++) {
+            item = _model->itemFromIndex(_model->index(_i, j, _index));
+            *it = glv::tdata::fromQStandardItem<typename Tcontainer::value_type::value_type>(item);
+        }
+
+    }
+
+    static void add_coordinate(std::vector<int>& _coordinates, QModelIndex& _index) {
+
+        _coordinates.insert(_coordinates.begin(), _index.column());
+
+    }
+
+};
+
+template <class Tcontainer>
+QString glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable>::get_root_text(unsigned int _Mrows, unsigned int _Ncols) {
+    return QString::number(_Mrows) + "x" + QString::number(_Ncols);
+}
+
+template <class Tcontainer>
+void glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable>::make(const Tcontainer& _container, QStandardItemModel* _model, const QModelIndex _index, const Qt::ItemFlag _flag_additional) {
+
+    if (_model) {
+
+        if (_index == QModelIndex() || _index.model() == _model) {
+
+            unsigned int Mrows = (unsigned int)_container.size();
+            glv::resize_rows(_model, Mrows, _index);
+            unsigned int Ncols = (unsigned int)ContainerHandler<Tcontainer>::get_size(_container);
+            glv::resize_cols(_model, Ncols, _index);
+
+            QModelIndex index;
+            typename Tcontainer::const_iterator it = _container.begin();
+            for (int i = 0; i < (int)Mrows; i++, ++it) {
+                ContainerHandler<Tcontainer>::set_model(*it, i, _model, _index, _flag_additional);
+            }
+
+            if (_index != QModelIndex()) {
+                QString root_text = get_root_text(Mrows, Ncols);
+                if (_model->itemFromIndex(_index)->text() != root_text) {
+                    _model->itemFromIndex(_index)->setText(root_text);
+                }
+            }
+
+        } else {
+            slv::flag::ISSUE(slv::flag::Critical, "index's model is different from the one it is supposed to belong to");
+        }
+
+    } else {
+        slv::flag::ISSUE(slv::flag::Critical, "_model is NULL");
+    }
+
+}
+
+template <class Tcontainer>
+Tcontainer glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable>::get_value(const QStandardItemModel* _model, const QModelIndex& _index, const int _Mrows, const int _Ncols) {
+
+    Tcontainer container;
+
+    if (_index == QModelIndex() || _index.model() == _model) {
+
+        int Mrows = (_Mrows == -1) ? _model->rowCount(_index) : std::min(_model->rowCount(_index), _Mrows);
+        int Ncols = (_Ncols == -1) ? _model->columnCount(_index) : std::min(_model->columnCount(_index), _Ncols);
+
+        ContainerHandlerResize<Tcontainer>::resize(container, Mrows);
+        for (typename Tcontainer::iterator it = container.begin(); it != container.end(); ++it) {
+            ContainerHandler<Tcontainer>::resize(*it, Ncols);
+        }
+
+        typename Tcontainer::iterator it = container.begin();
+        for (int i = 0; i < Mrows; i++, ++it) {
+            ContainerHandler<Tcontainer>::get_value(*it, i, _model, _index);
+        }
+
+    } else {
+        slv::flag::ISSUE(slv::flag::Critical, "index's model is different from the one it is supposed to belong to");
+    }
+
+    return container;
+
+}
+
+template <class Tcontainer>
+std::vector<int> glv::tdata::QStandardItemModelMaker<Tcontainer, Tenable>::get_coordinates(QModelIndex& _index) {
+
+    std::vector<int> coordinates = glv::tdata::QStandardItemMaker<Tdata_sub>::get_coordinates(_index);
+    ContainerHandler<Tcontainer>::add_coordinate(coordinates, _index);
+    coordinates.insert(coordinates.begin(), _index.row());
+    _index = _index.parent();
+
+    return coordinates;
+}
+
+#undef Tenable
+
+#if OPTION_WIDGET_DATA_CONTAINER_TABLE==1
+
+// Container of container, except std::map, std::unordered_map and std::string
+#define Tenable typename std::enable_if<SlvIsContainer<Tcontainer>::value && SlvIsContainer<typename Tcontainer::value_type>::value && !std::is_same<typename Tcontainer::value_type, std::string>::value && !SlvIsMap<Tcontainer>::value && !std::is_same<Tcontainer, std::string>::value>::type
+
+/*! GlvWidgetData specialization for template type: .*/
+template <class Tcontainer>
+class GlvWidgetData<Tcontainer, Tenable> : public GlvTableView<Tcontainer> {
+
+public:
+    GlvWidgetData(Tcontainer _container = Tcontainer(), QWidget* _parent = 0) :GlvTableView<Tcontainer>(_container, _parent) {
+        GlvTableView_base::set_fixed_size(true);
+    }
+    ~GlvWidgetData() {}
+
+};
+
+template <class Tcontainer>
+struct GlvWidgetMakerConnect<Tcontainer, Tenable> {
+    static void connect(GlvWidgetData<Tcontainer>* _widget, GlvWidget_base::GlvWidgetConnector* _widget_connector) {
+        QObject::connect(_widget, SIGNAL(valueChanged(const std::vector<int>&)), _widget_connector, SLOT(valueChanged_slot(const std::vector<int>&)));
+    }
+};
+
+#undef Tenable
+#endif
+
+/*! Simple QStandardItem containing a template value and its expression in QString. If no specialization of glv::toQString<T>, slv::string::to_string<T> is used.*/
+template <class T>
+class GlvStandardItem : public QStandardItem {
+
+protected:
+
+    T value;
+
+public:
+
+    GlvStandardItem();
+    GlvStandardItem(const T& _value);
+    /*! Text can be explicitly set.*/
+    GlvStandardItem(const QString& text);
+    GlvStandardItem(const QString& text, const T& _value);
+    GlvStandardItem(const QIcon& icon, const QString& text, const T& _value);
+
+    ~GlvStandardItem();
+
+    const T& get_value() const;
+    void set_value(const T& _value);
+
+};
+
+template <class T>
+GlvStandardItem<T>::GlvStandardItem() :QStandardItem(), value(T()) {
+
+}
+
+template <class T>
+GlvStandardItem<T>::GlvStandardItem(const T& _value) : QStandardItem(glv::toQString(_value)), value(_value) {
+
+}
+
+template <class T>
+GlvStandardItem<T>::GlvStandardItem(const QString& text) : QStandardItem(text), value(T()) {
+
+}
+
+template <class T>
+GlvStandardItem<T>::GlvStandardItem(const QString& text, const T& _value) : QStandardItem(text), value(_value) {
+
+}
+
+template <class T>
+GlvStandardItem<T>::GlvStandardItem(const QIcon& icon, const QString& text, const T& _value) : QStandardItem(icon, text), value(_value) {
+
+}
+
+template <class T>
+GlvStandardItem<T>::~GlvStandardItem() {
+
+}
+
+template <class T>
+const T& GlvStandardItem<T>::get_value() const {
+
+    return value;
+
+}
+
+template <class T>
+void GlvStandardItem<T>::set_value(const T& _value) {
+
+    value = _value;
+
+}
+
+/*! Specialization of QStandardItemModelMaker for std::map.*/
+template <class Tkey, class Tvalue>
+struct glv::tdata::QStandardItemModelMaker< std::map<Tkey, Tvalue> > {
+    static constexpr bool is_specialized = true;
+    typedef Tvalue Tdata_sub;
+private:
+    static QString get_root_text(unsigned int _size) {
+        return glv::toQString(SlvDataName< std::map<Tkey, Tvalue> >::name()) + " : " + QString::number(_size);
+    }
+public:
+    static void make(const std::map<Tkey, Tvalue>& _map, QStandardItemModel* _model, const QModelIndex _index = QModelIndex(), const Qt::ItemFlag _flag_additional = Qt::NoItemFlags) {
+
+        if (_model && (_index == QModelIndex() || _index.model() == _model)) {
+
+            glv::resize(_model, (unsigned int)_map.size(), 2, _index);
+
+            QModelIndex index;
+            int i = 0;
+            for (typename std::map<Tkey, Tvalue>::const_iterator it = _map.begin(); it != _map.end(); ++it, i++) {
+                index = _model->index(i, 0, _index);
+                glv::tdata::toQStandardItem(it->first, _model->itemFromIndex(index));
+
+                _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() | _flag_additional);
+                
+                // If Tvalue is specialized, disable Tkey editing
+                static bool condition = glv::tdata::QStandardItemModelMaker<Tkey>::is_specialized || (glv::tdata::QStandardItemModelMaker<Tvalue>::is_specialized && !glv::tdata::l_allow_type_mismatch_edit);
+                // C4127
+                if (condition) {
+                    _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() ^ Qt::ItemIsEditable);
+                }
+                if (!std::is_same<Tkey, Tvalue>::value) {
+                    _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() | glv::tdata::type_mismatch_flag);
+                }
+
+                index = _model->index(i, 1, _index);
+                glv::tdata::toQStandardItem(it->second, _model->itemFromIndex(index));
+                _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() | _flag_additional);
+            }
+
+            if (_index != QModelIndex()) {
+                QString root_text = get_root_text((unsigned int)_map.size());
+                if (_model->itemFromIndex(_index)->text() != root_text) {
+                    _model->itemFromIndex(_index)->setText(root_text);
+                }
+            }
+
+        }
+
+    }
+
+    static std::map<Tkey, Tvalue> get_value(const QStandardItemModel* _model, const QModelIndex& _index, const int _Mrows, const int _Ncols) {
+
+        std::map<Tkey, Tvalue> map;
+
+        if (_index == QModelIndex() || _index.model() == _model) {
+
+            int N = (_Mrows == -1) ? _model->rowCount(_index) : std::min(_model->rowCount(_index), _Mrows);
+
+            if (_model->columnCount(_index) >= 2) {
+
+                QStandardItem* item;
+                Tkey key;
+                Tvalue value;
+                typename std::map<Tkey, Tvalue>::iterator it;
+                for (int i = 0; i < N; i++) {
+                    item = _model->itemFromIndex(_model->index(i, 0, _index));
+                    key = glv::tdata::fromQStandardItem<Tkey>(item);
+                    it = map.find(key);
+                    if (it == map.end()) {
+                        item = _model->itemFromIndex(_model->index(i, 1, _index));
+                        value = glv::tdata::fromQStandardItem<Tvalue>(item);
+                        map[key] = value;
+                    } else {
+                        // key already exists
+                    }
+                }
+
+            } else {
+                slv::flag::ISSUE(slv::flag::Critical, "std::map requires two columns in the model");
+            }
+
+        } else {
+            slv::flag::ISSUE(slv::flag::Critical, "index's model is different from the one it is supposed to belong to");
+        }
+
+        return map;
+    }
+
+    static std::vector<int> get_coordinates(QModelIndex& _index) {
+
+        std::vector<int> coordinates = glv::tdata::QStandardItemMaker<Tvalue>::get_coordinates(_index);
+        coordinates.insert(coordinates.begin(), _index.column());
+        coordinates.insert(coordinates.begin(), _index.row());
+
+        _index = _index.parent();
+
+        return coordinates;
+    }
+
+};
+
+/*! Specialization of QStandardItemModelMaker for SlvPool.
+First column: label.
+Second colum: value.*/
+template <class Tvalue, class Tlabel>
+struct glv::tdata::QStandardItemModelMaker< SlvPool<Tvalue, Tlabel> > {
+    static constexpr bool is_specialized = true;
+    typedef Tvalue Tdata_sub;
+private:
+    static QString get_root_text(unsigned int _size) {
+        return glv::toQString(SlvDataName< SlvPool<Tvalue> >::name()) + " : " + QString::number(_size);
+    }
+public:
+    static void make(const SlvPool<Tvalue, Tlabel>& _pool, QStandardItemModel* _model, const QModelIndex _index = QModelIndex(), const Qt::ItemFlag _flag_additional = Qt::NoItemFlags) {
+
+        if (_model && (_index == QModelIndex() || _index.model() == _model)) {
+
+            glv::resize(_model, (unsigned int)(_pool.psize()), 2, _index);
+
+            QModelIndex index;
+            for (unsigned int i = 0; i < _pool.psize(); i++) {
+                index = _model->index(i, 0, _index);
+                glv::tdata::toQStandardItem(_pool[i]->get_label(), _model->itemFromIndex(index));
+                _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() | _flag_additional);
+
+                // If Tvalue is specialized, disable Tkey editing
+                static bool condition = glv::tdata::QStandardItemModelMaker<Tlabel>::is_specialized || (glv::tdata::QStandardItemModelMaker<Tvalue>::is_specialized && !glv::tdata::l_allow_type_mismatch_edit);
+                // C4127
+                if (condition) {
+                    _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() ^ Qt::ItemIsEditable);
+                }
+                if (!std::is_same<Tlabel, Tvalue>::value) {
+                    _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() | glv::tdata::type_mismatch_flag);
+                }
+                index = _model->index(i, 1, _index);
+                glv::tdata::toQStandardItem(*_pool[i], _model->itemFromIndex(index));
+                _model->itemFromIndex(index)->setFlags(_model->itemFromIndex(index)->flags() | _flag_additional);
+            }
+
+            if (_index != QModelIndex()) {
+                QString root_text = get_root_text((unsigned int)(_pool.psize()));
+                if (_model->itemFromIndex(_index)->text() != root_text) {
+                    _model->itemFromIndex(_index)->setText(root_text);
+                }
+            }
+
+        }
+
+    }
+
+    static SlvPool<Tvalue, Tlabel> get_value(const QStandardItemModel* _model, const QModelIndex& _index, const int _Mrows, const int _Ncols) {
+
+        SlvPool<Tvalue, Tlabel> pool;
+
+        if (_index == QModelIndex() || _index.model() == _model) {
+
+            int N = (_Mrows == -1) ? _model->rowCount(_index) : std::min(_model->rowCount(_index), _Mrows);
+
+            if (_model->columnCount(_index) >= 2) {
+
+                QStandardItem* item;
+                Tvalue* value;
+                for (int i = 0; i < N; i++) {
+                    item = _model->itemFromIndex(_model->index(i, 0, _index));
+                    value = pool.new_element(glv::tdata::fromQStandardItem<Tlabel>(item));
+                    item = _model->itemFromIndex(_model->index(i, 1, _index));
+                    *value = glv::tdata::fromQStandardItem<Tvalue>(item);
+                }
+
+            } else {
+                slv::flag::ISSUE(slv::flag::Critical, "SlvPool requires two columns in the model");
+            }
+
+        } else {
+            slv::flag::ISSUE(slv::flag::Critical, "index's model is different from the one it is supposed to belong to");
+        }
+
+        return pool;
+    }
+
+    static std::vector<int> get_coordinates(QModelIndex& _index) {
+
+        std::vector<int> coordinates = glv::tdata::QStandardItemMaker<Tvalue>::get_coordinates(_index);
+        coordinates.insert(coordinates.begin(), _index.column());
+        coordinates.insert(coordinates.begin(), _index.row());
+
+        _index = _index.parent();
+
+        return coordinates;
+    }
+
+};
+
+class QComboBox;
+class QWidget;
+
+namespace glv {
+
+	/*! Create a QComboBox from a Tdata. Displayed values are the first template argument.*/
+	template <class Tdata>
+	QComboBox* toQComboBox(const Tdata& _data, QString _name = "", QWidget* _parent = 0);
+	/*! Assign a Tdata to a QComboBox. Displayed values are the first template argument.*/
+	template <class Tdata>
+	void toQComboBox(QComboBox* _combo_box, const Tdata& _data, QString _name = "");
+
+}
+
+template <class Tdata>
+QComboBox* glv::toQComboBox(const Tdata& _data, QString _name, QWidget* _parent) {
+
+	QComboBox* combo_box = new QComboBox(_parent);
+	toQComboBox(combo_box, _data, _name);
+	return combo_box;
+
+}
+
+template <class Tdata>
+void glv::toQComboBox(QComboBox* _combo_box, const Tdata& _data, QString _name) {
+
+	QStandardItemModel* model = glv::tdata::toQStandardItemModel(_data);
+	_combo_box->clear();
+	_combo_box->setObjectName(_name);
+	_combo_box->setModel(model);
+
 }
 
 #endif
@@ -21854,6 +22038,29 @@ private:
 
 };
 
+namespace slv {
+	/*! Parse \p _string to assign \p _size. Reciprocal to << operator.*/
+	template <class T>
+	bool parse(const std::string& _string, SlvSize2d<T>& _size);
+}
+
+template <class T>
+bool slv::parse(const std::string& _string, SlvSize2d<T>& _size) {
+
+	bool l_parsing_ok = true;
+
+	size_t pos = _string.find('x');
+	if (pos != std::string::npos) {
+		l_parsing_ok = slv::parse(_string.substr(0, pos), _size.width);
+		l_parsing_ok &= slv::parse(_string.substr(pos + 1), _size.height);
+	} else {
+		l_parsing_ok = false;
+		std::cout << "Parsing issue for type " << SlvDataName<SlvSize2d<T>>::name() << " and for string " << _string << std::endl;
+	}
+
+	return l_parsing_ok;
+}
+
 template <class T>
 SlvSize2d<T>::SlvSize2d(T _width, T _height) {
 
@@ -21920,29 +22127,6 @@ SlvStatus SlvSize2d<T>::readJson(const nlohmann::json& _json) {
 	return status;
 }
 #endif
-
-namespace slv {
-    /*! Parse \p _string to assign \p _size. Reciprocal to << operator.*/
-    template <class T>
-    bool parse(const std::string& _string, SlvSize2d<T>& _size);
-}
-
-template <class T>
-bool slv::parse(const std::string& _string, SlvSize2d<T>& _size) {
-
-    bool l_parsing_ok = true;
-
-    size_t pos = _string.find('x');
-    if (pos != std::string::npos) {
-        l_parsing_ok = slv::parse(_string.substr(0, pos), _size.width);
-        l_parsing_ok &= slv::parse(_string.substr(pos + 1), _size.height);
-    } else {
-        l_parsing_ok = false;
-		std::cout << "Parsing issue for type " << SlvDataName<SlvSize2d<T>>::name() << " and for string " << _string << std::endl;
-    }
-
-    return l_parsing_ok;
-}
 
 #ifndef GLOVE_DISABLE_QT
 
@@ -22595,7 +22779,7 @@ unsigned int slv::misc::get_Ndecimals(const T& _value, bool _l_round_floating_po
 
         return count;
     } else {
-        return std::numeric_limits<int>::infinity();
+        return std::numeric_limits<unsigned int>::max();
     }
 }
 
@@ -24237,6 +24421,30 @@ inline GlvDescribedWidget_base::~GlvDescribedWidget_base() {
 
 }
 
+inline void GlvDescribedWidget_base::set_alias(const std::string& _alias) {
+
+	if (data_name_label && !_alias.empty()) {
+		data_name_label->setToolTip(glv::toQString(_alias));
+	}
+
+}
+
+inline const std::string& GlvDescribedWidget_base::get_data_name() const {
+
+	return data_name;
+
+}
+
+inline std::string GlvDescribedWidget_base::get_data_alias() const {
+
+	if (data_name_label) {
+		return data_name_label->toolTip().toStdString();
+	} else {
+		return std::string();
+	}
+
+}
+
 inline void GlvDescribedWidget_base::set_data_widget(QWidget* _data_widget, const QString& _optional_text_str) {
 
 	layout->addWidget(_data_widget, 1, 0);
@@ -24354,6 +24562,12 @@ inline void GlvWidget_base::delete_optional_widgets() {
 
 }
 
+inline QWidget* GlvWidget_base::get_data_widget() const {
+
+    return data_widget;
+
+}
+
 inline void GlvWidget_base::resizeEvent(QResizeEvent* _resize_event) {
 
     emit sizeChanged();
@@ -24463,7 +24677,7 @@ inline GlvWidgetData<Tdata>::GlvWidgetData(QWidget* _parent) :QDoubleSpinBox(_pa
 inline GlvWidgetData<Tdata>::GlvWidgetData(const Tdata& _value, QWidget* _parent) : GlvWidgetData(_parent) {
     unsigned int Ndecimals = slv::misc::get_Ndecimals(_value);
     Ndecimals = std::max((unsigned int)2, Ndecimals);
-    if (Ndecimals != std::numeric_limits<int>::infinity()) {
+    if (Ndecimals != std::numeric_limits<unsigned int>::max()) {
         setDecimals(Ndecimals);
     }
     set_value(_value);
@@ -24491,7 +24705,7 @@ inline GlvWidgetData<Tdata>::GlvWidgetData(QWidget* _parent) :QDoubleSpinBox(_pa
 inline GlvWidgetData<Tdata>::GlvWidgetData(const Tdata& _value, QWidget* _parent) : GlvWidgetData(_parent) {
     unsigned int Ndecimals = slv::misc::get_Ndecimals(_value);
     Ndecimals = std::max((unsigned int)2, Ndecimals);
-    if (Ndecimals != std::numeric_limits<int>::infinity()) {
+    if (Ndecimals != std::numeric_limits<unsigned int>::max()) {
         setDecimals(Ndecimals);
     }
     set_value(_value);
@@ -24512,7 +24726,7 @@ inline void GlvWidgetData<Tdata>::set_value(const Tdata& _value) {
 #undef Tdata
 #define Tdata bool
 inline GlvWidgetData<Tdata>::GlvWidgetData(QWidget* _parent) :QCheckBox(_parent) {
-
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
 }
 inline GlvWidgetData<Tdata>::GlvWidgetData(const Tdata& _value, QWidget* _parent) : GlvWidgetData(_parent) {
     set_value(_value);
@@ -24533,371 +24747,6 @@ inline void GlvWidgetData<Tdata>::set_value(const Tdata& _value) {
 #undef Tdata
 
 #endif
-
-inline SlvProportion::SlvProportion(Tvalue _value) {
-    *this = _value;
-}
-
-inline SlvProportion::~SlvProportion() {
-
-}
-
-inline SlvProportion::operator Tvalue() const {
-
-    return value;
-}
-
-inline SlvProportion& SlvProportion::operator=(const Tvalue& _value) {
-
-    if (_value < 0. || _value > 1.) {
-        slv::flag::ISSUE(slv::flag::FlagType::Warning, "can't set SlvProportion with value : ", _value);
-    }
-
-    value = std::max(0., std::min(1., _value));
-
-    return *this;
-}
-
-inline bool SlvProportion::readB(std::ifstream& _input_file) {
-
-    return slv::rw::readB(value, _input_file);
-}
-
-inline void SlvProportion::writeB(std::ofstream& _output_file) const {
-
-    slv::rw::writeB(value, _output_file);
-}
-
-inline void SlvProportion::istream(std::istream& _is) {
-
-    std::string tmp;
-    _is >> tmp;
-
-    try {
-        value = std::stod(tmp);
-        value /= 100.;
-    } catch (const std::invalid_argument&) {
-        
-    }
-    
-}
-
-inline void SlvProportion::ostream(std::ostream& _os) const {
-
-    _os << value * 100. << "%";
-}
-
-#ifndef GLOVE_DISABLE_QT
-
-inline GlvProportionWidget::GlvProportionWidget(SlvProportion _proportion, int _slider_size, QWidget* _parent) {
-    
-    QGridLayout* layout = new QGridLayout;
-    layout->setContentsMargins(0, 0, 0, 0);
-    
-    value_widget = new QDoubleSpinBox;
-    value_widget->setMaximum(100);
-    value_widget->setMinimum(0);
-    value_widget->setDecimals(2);
-
-    layout->addWidget(value_widget, 0, 0);
-    percentage_label = new QLabel("%");
-    layout->addWidget(percentage_label, 0, 1);
-    slider = new QSlider;
-    slider->setMinimum(0);
-    slider->setOrientation(Qt::Horizontal);
-    layout->addWidget(slider, 1, 0);
-    setLayout(layout);
-
-    set_slider_size(_slider_size);
-
-    connect(value_widget, SIGNAL(valueChanged(double)), this, SLOT(valueChanged_slot(double)));
-    
-    //sync spinbox and slider
-    connect(slider, SIGNAL(valueChanged(int)), this, SLOT(set_value_to_spinbox(int)));
-    connect(value_widget, SIGNAL(valueChanged(double)), this, SLOT(set_value_to_slider(double)));
-    
-    set_value(_proportion);
-}
-
-inline GlvProportionWidget::~GlvProportionWidget() {
-    
-}
-
-inline void GlvProportionWidget::set_slider_size(int _slider_size) {
-
-    slider_size = _slider_size;
-
-    value_widget->setSingleStep(double(100) / slider_size);
-    slider->setMaximum(slider_size);
-
-    set_value_to_slider(value_widget->value());
-
-}
-
-inline SlvProportion GlvProportionWidget::get_value() const {
-    
-    return SlvProportion(value_widget->value() / 100);
-}
-
-inline void GlvProportionWidget::set_value(const SlvProportion& _proportion) {
-    
-    value_widget->setValue(_proportion * 100);
-}
-
-inline void GlvProportionWidget::set_editable(bool l_editable) {
-    
-    value_widget->setEnabled(l_editable);
-    slider->setEnabled(l_editable);
-    
-}
-
-inline void GlvProportionWidget::set_value_to_spinbox(int _value) {
-    
-    value_widget->setValue(double(_value) * double(100) / slider_size);
-    
-}
-
-inline void GlvProportionWidget::set_value_to_slider(double _value) {
-
-    slider->setValue(int(_value * slider_size / 100));
-    
-}
-
-inline void GlvProportionWidget::valueChanged_slot(double _value) {
-    
-    emit valueChanged(_value);
-
-}
-
-#define Tdata SlvProportion
-
-inline GlvWidgetData<Tdata>::GlvWidgetData(Tdata _ratio, QWidget* _parent) :GlvProportionWidget(_ratio, 100, _parent) {
-
-}
-
-inline GlvWidgetData<Tdata>::~GlvWidgetData() {
-
-}
-
-#undef Tdata
-
-#define Tdata std::string
-inline GlvWidgetData<Tdata>::GlvWidgetData(QWidget* _parent) :QLineEdit(_parent) {
-
-}
-inline GlvWidgetData<Tdata>::GlvWidgetData(const Tdata& _value, QWidget* _parent) : GlvWidgetData(_parent) {
-    set_value(_value);
-}
-inline GlvWidgetData<Tdata>::~GlvWidgetData() {
-
-}
-inline void GlvWidgetData<Tdata>::set_editable(bool l_editable) {
-    QLineEdit::setReadOnly(!l_editable);
-}
-inline Tdata GlvWidgetData<Tdata>::get_value() const {
-    return QLineEdit::displayText().toStdString();
-}
-inline void GlvWidgetData<Tdata>::set_value(const Tdata& _value) {
-    QLineEdit::setText(glv::toQString(_value));
-}
-
-#undef Tdata
-
-#endif
-
-inline SlvCLI::Arguments::Arguments(int _argc, char* _argv[]) {
-
-	parse(_argc, _argv);
-
-}
-
-inline bool SlvCLI::has_glove(int _argc, char* _argv[]) {
-
-	bool l_found = false;
-	int i;
-	for (i = 1; i < _argc && !l_found; i++) {
-		l_found = !std::strcmp(_argv[i], "-glove");
-	}
-
-	return l_found;
-}
-
-inline int SlvCLI::find_json_file(int _argc, char* _argv[]) {
-
-	static const std::string json_ext = ".json";
-	bool l_found = false;
-	int i;
-	for (i = 1; i < _argc && !l_found; i++) {
-
-		size_t len = strlen(_argv[i]);
-		if (len >= json_ext.size()) {
-			char* str = (char*)_argv[i] + (len - json_ext.size());
-			l_found = !std::strcmp(str, json_ext.c_str());
-		}
-
-	}
-
-	if (l_found) {
-		return i - 1;
-	} else {
-		return -1;
-	}
-
-}
-
-inline bool SlvCLI::Arguments::is_empty() const {
-
-	return parameter_arguments.empty() && solo_arguments.empty();
-
-}
-
-inline const std::vector<std::string>& SlvCLI::Arguments::get_solo_arguments() const {
-
-	return solo_arguments;
-
-}
-
-inline const SlvCLI::Arguments::Tparameters& SlvCLI::Arguments::get_parameter_arguments() const {
-
-	return parameter_arguments;
-
-}
-
-inline const std::string& SlvCLI::Arguments::get_glove_argument() const {
-
-	return glove_argument;
-
-}
-
-inline void SlvCLI::Arguments::parse(int _argc, char* _argv[]) {
-
-	parameter_arguments.clear();
-	solo_arguments.clear();
-
-	for (int i = 1; i < _argc; i++) {
-		bool l_parameter = false;
-		if (_argv[i][0] == '-') {
-
-			bool l_value = i < _argc - 1;
-			if (l_value) {
-				bool l_value2 = _argv[i + 1][0] != '-';// if front of next argument has no '-'
-				bool l_value_dash = _argv[i + 1][0] == '-';// if front of next argument is '-', then check for value
-				bool l_value_number = false;
-				if (l_value_dash) {
-					l_value_number = (std::isdigit(_argv[i + 1][1]) || (std::strcmp(_argv[i + 1], "-inf") == 0));
-				}
-				l_value &= (l_value2 || (l_value_dash && l_value_number));
-			}
-
-			if (l_value) {
-
-				if (std::strcmp(_argv[i], "-glove")) {
-					parameter_arguments[_argv[i]].push_back(_argv[i + 1]);
-				} else {
-					glove_argument = _argv[i + 1];
-				}
-				l_parameter = true;
-			}
-		}
-
-		if (!l_parameter) {
-			if (std::strcmp(_argv[i], "-glove")) {
-				solo_arguments.push_back(_argv[i]);
-			}
-		} else {
-			i++;
-		}
-	}
-
-}
-
-inline void SlvCLI::Arguments::filter(const std::vector<std::string>& _arguments_remaining) {
-
-	for (Tparameters::const_iterator it = parameter_arguments.begin(); it != parameter_arguments.end();) {
-
-		if (!slv::vector::find(it->first, _arguments_remaining)) {
-			it = parameter_arguments.erase(it);
-		} else {
-			++it;
-		}
-
-	}
-
-	for (std::vector<std::string>::const_iterator it = solo_arguments.begin(); it != solo_arguments.end();) {
-
-		if (!slv::vector::find(*it, _arguments_remaining)) {
-			it = solo_arguments.erase(it);
-		} else {
-			++it;
-		}
-
-	}
-
-}
-
-inline std::pair<int, char**> SlvCLI::get_arguments(const std::vector< std::pair<std::string, std::string> >& _parameter_arguments, const std::vector<std::string>& _solo_arguments) {
-
-	std::vector< std::pair<std::string, std::string> > parameter_arguments;
-	for (std::vector< std::pair<std::string, std::string> >::const_iterator it = _parameter_arguments.begin(); it != _parameter_arguments.end(); ++it) {
-		if (it->first.front() == '-') {
-			parameter_arguments.push_back(*it);
-		}
-	}
-
-	std::vector<std::string> solo_arguments;
-	for (std::vector<std::string>::const_iterator it = _solo_arguments.begin(); it != _solo_arguments.end(); ++it) {
-		if (it->front() == '-') {
-			solo_arguments.push_back(*it);
-		}
-	}
-
-	int Nfilled_parameters = 0;
-	for (int i = 0; i < parameter_arguments.size(); i++) {
-		if (!parameter_arguments[i].second.empty()) {
-			Nfilled_parameters++;
-		}
-	}
-
-	int argc = 2 * Nfilled_parameters + (int)solo_arguments.size() + 1;
-	char** argv = new char* [argc];
-
-	int k_arg = 0;
-	for (int i = 0; i < parameter_arguments.size(); i++) {
-
-		if (!parameter_arguments[i].second.empty()) {
-
-			argv[1 + k_arg] = new char[parameter_arguments[i].first.size() + 1];
-#ifdef COMPILER_GCC
-			strcpy(argv[1 + k_arg], parameter_arguments[i].first.c_str());
-#else
-			strcpy_s(argv[1 + k_arg], parameter_arguments[i].first.size() + 1, parameter_arguments[i].first.c_str());
-#endif
-			k_arg++;
-
-			argv[1 + k_arg] = new char[parameter_arguments[i].second.size() + 1];
-#ifdef COMPILER_GCC
-			strcpy(argv[1 + k_arg], parameter_arguments[i].second.c_str());
-#else
-			strcpy_s(argv[1 + k_arg], parameter_arguments[i].second.size() + 1, parameter_arguments[i].second.c_str());
-#endif
-			k_arg++;
-
-		}
-
-	}
-
-	for (int i = 0; i < solo_arguments.size(); i++) {
-		argv[1 + 2 * Nfilled_parameters + i] = new char[solo_arguments[i].size() + 1];
-#ifdef COMPILER_GCC
-		strcpy(argv[1 + 2 * Nfilled_parameters + i], solo_arguments[i].c_str());
-#else
-		strcpy_s(argv[1 + 2 * Nfilled_parameters + i], solo_arguments[i].size() + 1, solo_arguments[i].c_str());
-#endif
-	}
-
-	return { argc, argv };
-
-}
 
 inline SlvLblIdentifier::SlvLblIdentifier(slv::lbl::Identifier _Id) :SlvLabeling<slv::lbl::Identifier>(_Id) {
 
@@ -25463,6 +25312,137 @@ inline GlvWidgetData<Tdata>::~GlvWidgetData() {
 
 #undef Tdata
 
+#define Tdata std::string
+inline GlvWidgetData<Tdata>::GlvWidgetData(QWidget* _parent) :QLineEdit(_parent) {
+
+}
+inline GlvWidgetData<Tdata>::GlvWidgetData(const Tdata& _value, QWidget* _parent) : GlvWidgetData(_parent) {
+    set_value(_value);
+}
+inline GlvWidgetData<Tdata>::~GlvWidgetData() {
+
+}
+inline void GlvWidgetData<Tdata>::set_editable(bool l_editable) {
+    QLineEdit::setReadOnly(!l_editable);
+}
+inline Tdata GlvWidgetData<Tdata>::get_value() const {
+    return QLineEdit::displayText().toStdString();
+}
+inline void GlvWidgetData<Tdata>::set_value(const Tdata& _value) {
+    QLineEdit::setText(glv::toQString(_value));
+}
+
+#undef Tdata
+
+#endif
+
+inline SlvParametrization_base::SlvParametrization_base() {
+
+	l_param_init_auto = true;
+
+}
+
+inline SlvParametrization_base::~SlvParametrization_base() {
+
+}
+
+inline bool SlvParametrization_base::is_param_init_auto() const {
+	return l_param_init_auto;
+}
+
+inline void SlvParametrization_base::set_param_init_auto(bool _l_param_init_auto) {
+	l_param_init_auto = _l_param_init_auto;
+}
+
+inline std::string SlvParametrization_base::get_id_str() const {
+	return slv::string::to_string(get_vector_id_str());
+}
+inline std::string SlvParametrization_base::get_full_name() const {
+	return get_name() + separator() + get_id_str();
+}
+
+inline bool SlvParametrization_base::has_rules() const {
+
+	bool l_has_rules = false;
+
+	for (int i = 0; i < parameters.size() && !l_has_rules; i++) {
+
+		l_has_rules = (parameters[i]->get_Nrules() > 1);// 1 because a default rule is added for every parameter to manage recursive rules of parametrizations
+
+	}
+
+	return l_has_rules;
+}
+
+inline void SlvParametrization_base::param_init() {
+
+}
+
+inline std::vector<const SlvParameter_base*> SlvParametrization_base::find(std::string _parameter_name, bool _l_parametrizations) const {
+
+	std::vector<const SlvParameter_base*> parameters_found;
+
+	for (std::vector<const SlvParameter_base*>::const_iterator it = parameters.begin(); it != parameters.end(); ++it) {
+
+		const SlvParametrization_base* parametrization_cast = (*it)->parametrization_cast();
+
+		if ((_l_parametrizations || !parametrization_cast) && ((*it)->get_name() == _parameter_name || (!(*it)->get_alias().empty() && (*it)->get_alias() == _parameter_name))) {
+
+			parameters_found.push_back(*it);
+
+		} else if (parametrization_cast) {
+
+			slv::vector::add(parameters_found, parametrization_cast->find(_parameter_name, _l_parametrizations));
+
+		}
+
+	}
+
+	return parameters_found;
+}
+
+inline const SlvParameter_base* SlvParametrization_base::find_first(std::string _parameter_name, bool _l_parametrizations) const {
+
+	std::vector<const SlvParameter_base*> parameters_found = find(_parameter_name, _l_parametrizations);
+	if (!parameters_found.empty()) {
+		return parameters_found.front();
+	} else {
+		return NULL;
+	}
+
+}
+
+inline std::pair< std::map<std::string, int>, std::vector<std::string> > SlvParametrization_base::set_stream_values(const std::map<std::string, std::string>& _stream_values, bool _l_parametrizations) {
+
+	std::pair< std::map<std::string, int>, std::vector<std::string> > conflicts_missing;
+
+	for (std::map<std::string, std::string>::const_iterator it = _stream_values.begin(); it != _stream_values.end(); ++it) {
+
+		std::vector<const SlvParameter_base*> parameters_found = find(it->first, _l_parametrizations);
+
+		if (!parameters_found.empty()) {
+
+			if (parameters_found.size() > 1) {
+				conflicts_missing.first[it->first] = (int)parameters_found.size();
+			}
+
+			for (int p = 0; p < parameters_found.size(); p++) {
+				const_cast<SlvParameter_base*>(parameters_found[p])->set_stream_value(it->second);
+			}
+
+		} else {
+
+			conflicts_missing.second.push_back(it->first);
+
+		}
+		
+	}
+
+	return conflicts_missing;
+}
+
+#ifndef GLOVE_DISABLE_QT
+
 inline GlvVectorWidget_base::GlvVectorWidget_base(QWidget* _parent) : QWidget(_parent) {
 
     QString info;
@@ -25689,361 +25669,7 @@ inline QString glv::toQString<unsigned long>(const unsigned long& _value) {
 	return QString(slv::string::number_to_string_auto(_value).c_str());
 }
 
-inline GlvMapWidget_base::GlvMapWidget_base(QWidget* _parent) : QWidget(_parent) {
-
-    QString info;
-
-    buttons_widget = new QGroupBox(tr("Size"));
-    buttons_widget->setFlat(true);
-    buttons_widget->setCheckable(true);
-    connect(buttons_widget, SIGNAL(toggled(bool)), this, SLOT(show_map_edit(bool)));
-    QVBoxLayout* buttons_layout = new QVBoxLayout;
-    buttons_widget->setLayout(buttons_layout);
-    buttons_widget->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-
-    insert_widget = new QWidget;
-    insert_layout = new QHBoxLayout;
-    insert_widget->setLayout(insert_layout);
-    button_insert = new QPushButton(tr("<"));
-    button_insert->setFixedWidth(30);
-    info = QString(tr("Insert an element at the specified key"));
-    button_insert->setWhatsThis(info);
-    button_insert->setToolTip(info);
-    connect(button_insert, SIGNAL(clicked()), this, SLOT(insertValue()));
-    insert_layout->addWidget(button_insert);
-    buttons_layout->addWidget(insert_widget);
-    buttons_layout->setContentsMargins(0, 3, 0, 0);
-
-    insert_layout->setContentsMargins(0, 0, 0, 0);
-
-    widget_items = new QWidget;
-    layout_items = new QVBoxLayout;
-    layout_items->setContentsMargins(6, 3, 6, 3);// vertical margin makes checking/unchecking the group box have the same size if content is empty
-    widget_items->setLayout(layout_items);
-
-    map_widget = new QGroupBox;
-    QVBoxLayout* layout_group = new QVBoxLayout;
-    layout_group->setContentsMargins(0, 0, 0, 0);
-    layout_group->addWidget(widget_items);
-    map_widget->setLayout(layout_group);
-
-    QHBoxLayout* layout = new QHBoxLayout;
-    layout->addWidget(map_widget);
-    layout->addWidget(buttons_widget, 0, Qt::AlignTop);
-    setLayout(layout);
-
-    layout->setContentsMargins(0, 0, 0, 0);
-
-    set_checkable(false);
-    connect(map_widget, SIGNAL(toggled(bool)), this, SLOT(show_map_items(bool)));
-    buttons_widget->setChecked(false);
-
-}
-
-inline GlvMapWidget_base::~GlvMapWidget_base() {
-
-}
-
-inline void GlvMapWidget_base::set_editable(bool _l_editable) {
-    QWidget::setEnabled(_l_editable);
-}
-
-inline void GlvMapWidget_base::set_checkable(bool _l_checkable) {
-    map_widget->setCheckable(_l_checkable);
-    QString title;
-    if (_l_checkable) {
-        title = tr("map");
-    }
-    map_widget->setTitle(title);
-}
-
-inline void GlvMapWidget_base::set_checked(bool _l_checked) {
-
-    map_widget->setChecked(_l_checked);
-
-}
-
-inline void GlvMapWidget_base::set_items_top_aligment(bool _l_top) {
-
-    if (_l_top) {
-        layout_items->setAlignment(Qt::AlignTop);
-    } else {
-        layout_items->setAlignment(Qt::AlignVCenter);
-    }
-
-}
-
-inline void GlvMapWidget_base::edit_set_checked(bool _l_checked) {
-
-    buttons_widget->setChecked(_l_checked);
-
-}
-
-inline void GlvMapWidget_base::show_map_items(bool _l_show) {
-
-    widget_items->setVisible(_l_show);
-
-}
-
-inline void GlvMapWidget_base::show_map_edit(bool _l_show) {
-
-    insert_widget->setVisible(_l_show);
-
-}
-
-inline GlvMapWidgetItem_base::GlvMapWidgetItem_base() {
-
-	layout = new QHBoxLayout;
-	this->setLayout(layout);
-	layout->setContentsMargins(0, 0, 0, 0);
-
-}
-
-inline GlvMapWidgetItem_base::~GlvMapWidgetItem_base() {
-
-}
-
-inline GlvOpenDirectory::GlvOpenDirectory(SlvDirectory _directory, QWidget* _parent) {
-
-    l_ready = false;
-
-    line_edit = new QLineEdit;
-    push_button = new QPushButton(QString(tr("Open directory")));
-
-    QHBoxLayout* layout = new QHBoxLayout;
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(line_edit);
-    layout->addWidget(push_button);
-
-    this->setLayout(layout);
-
-    connect(push_button, SIGNAL(clicked()), this, SLOT(getExistingDirectory()));
-    connect(line_edit, SIGNAL(textChanged(const QString&)), this, SLOT(directory_changed_slot(const QString&)));
-
-    status = new QLabel("Ok");
-    status->setToolTip(tr("Does the directory exist."));
-    layout->addWidget(status);
-
-    set_directory(_directory);
-}
-
-inline GlvOpenDirectory::GlvOpenDirectory(QString _default, QWidget* _parent) :GlvOpenDirectory(SlvDirectory(_default.toStdString()), _parent) {
-
-}
-
-inline GlvOpenDirectory::~GlvOpenDirectory() {
-
-}
-
-inline SlvDirectory GlvOpenDirectory::get_directory() const {
-
-    std::string directory_path = line_edit->text().toStdString();
-    if (!directory_path.empty() && directory_path.back() != '/') {
-        directory_path.push_back('/');
-    }
-    SlvDirectory directory(directory_path);
-    return directory;
-
-}
-
-inline void GlvOpenDirectory::set_directory(const SlvDirectory& _directory) {
-
-    QString directory_string = glv::toQString(_directory.get_path());
-
-    QDir directory_dir(directory_string);
-#ifdef QT_DIRECTORY_EXISTS
-    l_ready = directory_dir.exists();
-#else
-    l_ready = SlvDirectory(directory_string.toStdString()).exists();
 #endif
-
-    line_edit->setText(directory_string);
-
-    directory_changed_slot(line_edit->text());
-}
-
-inline bool GlvOpenDirectory::is_ready() const {
-
-    return l_ready;
-
-}
-
-inline void GlvOpenDirectory::set_editable(bool l_editable) {
-
-    line_edit->setReadOnly(!l_editable);
-    if (l_editable) {
-        push_button->show();
-    } else {
-        push_button->hide();
-    }
-
-}
-
-inline void GlvOpenDirectory::getExistingDirectory() {
-
-    SlvDirectory directory = get_directory();
-
-    QString default_directory_name = QString(SlvFileMgr::get_path(directory).c_str());
-    QDir default_directory(default_directory_name);
-    QString new_directory_name;
-    if (default_directory.exists()) {
-        new_directory_name = QFileDialog::getExistingDirectory(this, tr("Open directory"), default_directory_name);
-    } else {
-        new_directory_name = QFileDialog::getExistingDirectory(this, tr("Open directory"), qApp->applicationDirPath());
-    }
-
-    if (!new_directory_name.isEmpty()) {
-        QDir new_directory(new_directory_name);
-        if (!new_directory.exists()) {
-            QMessageBox::information(this, tr("Unable to open directory"), new_directory.path());
-        } else {
-            l_ready = true;
-            if (!new_directory_name.endsWith('/')) {
-                new_directory_name.push_back('/');
-            }
-            line_edit->setText(new_directory_name);
-            directory = SlvDirectory(new_directory_name.toStdString());
-        }
-    }
-
-}
-
-inline void GlvOpenDirectory::directory_changed_slot(const QString& _directory_path) {
-
-    update_readiness();
-
-    status->setEnabled(l_ready);
-
-    emit directory_changed(_directory_path);
-
-}
-
-inline void GlvOpenDirectory::update_readiness() {
-
-    QDir directory(line_edit->text());
-
-    l_ready = directory.exists();
-
-}
-
-#define Tdata SlvDirectory
-
-inline GlvWidgetData<Tdata>::GlvWidgetData(Tdata _file, QWidget* _parent) :GlvOpenDirectory(_file, _parent) {
-
-}
-
-inline GlvWidgetData<Tdata>::~GlvWidgetData() {
-
-}
-
-#undef Tdata
-
-#endif
-
-inline SlvParametrization_base::SlvParametrization_base() {
-
-	l_param_init_auto = true;
-
-}
-
-inline SlvParametrization_base::~SlvParametrization_base() {
-
-}
-
-inline bool SlvParametrization_base::is_param_init_auto() const {
-	return l_param_init_auto;
-}
-
-inline void SlvParametrization_base::set_param_init_auto(bool _l_param_init_auto) {
-	l_param_init_auto = _l_param_init_auto;
-}
-
-inline std::string SlvParametrization_base::get_id_str() const {
-	return slv::string::to_string(get_vector_id_str());
-}
-inline std::string SlvParametrization_base::get_full_name() const {
-	return get_name() + separator() + get_id_str();
-}
-
-inline bool SlvParametrization_base::has_rules() const {
-
-	bool l_has_rules = false;
-
-	for (int i = 0; i < parameters.size() && !l_has_rules; i++) {
-
-		l_has_rules = (parameters[i]->get_Nrules() > 1);// 1 because a default rule is added for every parameter to manage recursive rules of parametrizations
-
-	}
-
-	return l_has_rules;
-}
-
-inline void SlvParametrization_base::param_init() {
-
-}
-
-inline std::vector<const SlvParameter_base*> SlvParametrization_base::find(std::string _parameter_name, bool _l_parametrizations) const {
-
-	std::vector<const SlvParameter_base*> parameters_found;
-
-	for (std::vector<const SlvParameter_base*>::const_iterator it = parameters.begin(); it != parameters.end(); ++it) {
-
-		const SlvParametrization_base* parametrization_cast = (*it)->parametrization_cast();
-
-		if ((_l_parametrizations || !parametrization_cast) && (*it)->get_name() == _parameter_name) {
-
-			parameters_found.push_back(*it);
-
-		} else if (parametrization_cast) {
-
-			slv::vector::add(parameters_found, parametrization_cast->find(_parameter_name, _l_parametrizations));
-
-		}
-
-	}
-
-	return parameters_found;
-}
-
-inline const SlvParameter_base* SlvParametrization_base::find_first(std::string _parameter_name, bool _l_parametrizations) const {
-
-	std::vector<const SlvParameter_base*> parameters_found = find(_parameter_name, _l_parametrizations);
-	if (!parameters_found.empty()) {
-		return parameters_found.front();
-	} else {
-		return NULL;
-	}
-
-}
-
-inline std::pair< std::map<std::string, int>, std::vector<std::string> > SlvParametrization_base::set_stream_values(const std::map<std::string, std::string>& _stream_values, bool _l_parametrizations) {
-
-	std::pair< std::map<std::string, int>, std::vector<std::string> > conflicts_missing;
-
-	for (std::map<std::string, std::string>::const_iterator it = _stream_values.begin(); it != _stream_values.end(); ++it) {
-
-		std::vector<const SlvParameter_base*> parameters_found = find(it->first, _l_parametrizations);
-
-		if (!parameters_found.empty()) {
-
-			if (parameters_found.size() > 1) {
-				conflicts_missing.first[it->first] = (int)parameters_found.size();
-			}
-
-			for (int p = 0; p < parameters_found.size(); p++) {
-				const_cast<SlvParameter_base*>(parameters_found[p])->set_stream_value(it->second);
-			}
-
-		} else {
-
-			conflicts_missing.second.push_back(it->first);
-
-		}
-		
-	}
-
-	return conflicts_missing;
-}
 
 inline SlvParametrization0::SlvParametrization0() {
 
@@ -26095,8 +25721,8 @@ inline std::vector< std::pair<std::string, std::string> > SlvParametrization0::g
 	return serialization;
 }
 
-inline std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > SlvParametrization0::get_string_serialization_bool(unsigned int _marker) const {
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector<std::string> > serialization;
+inline std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > SlvParametrization0::get_string_serialization_bool(unsigned int _marker) const {
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization;
 	return serialization;
 }
 
@@ -26955,6 +26581,294 @@ inline QSize GlvTreeView_base::get_view_offset() {
 
 }
 
+#endif
+
+inline SlvCLI::Arguments::Arguments(int _argc, char* _argv[]) {
+
+	parse(_argc, _argv);
+
+}
+
+inline SlvCLI::Arguments::Arguments(const std::string& _args, std::vector<std::string> _arg_names, std::vector<std::string> _solo_arg_names) {
+
+	parse(_args, _arg_names, _solo_arg_names);
+
+}
+
+inline SlvStatus SlvCLI::Arguments::get_status() const {
+
+	return status;
+
+}
+
+inline std::vector<std::string> SlvCLI::Arguments::get_arguments_name() const {
+
+	std::vector<std::string> arguments_name;
+	for (auto it = parameter_arguments.begin(); it != parameter_arguments.end(); ++it) {
+		arguments_name.push_back(it->first);
+	}
+	for (auto it = solo_arguments.begin(); it != solo_arguments.end(); ++it) {
+		arguments_name.push_back(*it);
+	}
+
+	return arguments_name;
+}
+
+inline bool SlvCLI::has_glove(int _argc, char* _argv[]) {
+
+	bool l_found = false;
+	int i;
+	for (i = 1; i < _argc && !l_found; i++) {
+		l_found = !std::strcmp(_argv[i], "-glove");
+	}
+
+	return l_found;
+}
+
+inline int SlvCLI::find_json_file(int _argc, char* _argv[]) {
+
+	static const std::string json_ext = ".json";
+	bool l_found = false;
+	int i;
+	for (i = 1; i < _argc && !l_found; i++) {
+
+		size_t len = strlen(_argv[i]);
+		if (len >= json_ext.size()) {
+			char* str = (char*)_argv[i] + (len - json_ext.size());
+			l_found = !std::strcmp(str, json_ext.c_str());
+		}
+
+	}
+
+	if (l_found) {
+		return i - 1;
+	} else {
+		return -1;
+	}
+
+}
+
+inline bool SlvCLI::Arguments::is_empty() const {
+
+	return parameter_arguments.empty() && solo_arguments.empty();
+
+}
+
+inline const std::vector<std::string>& SlvCLI::Arguments::get_solo_arguments() const {
+
+	return solo_arguments;
+
+}
+
+inline const SlvCLI::Arguments::Tparameters& SlvCLI::Arguments::get_parameter_arguments() const {
+
+	return parameter_arguments;
+
+}
+
+inline const std::string& SlvCLI::Arguments::get_glove_argument() const {
+
+	return glove_argument;
+
+}
+
+inline void SlvCLI::Arguments::parse(int _argc, char* _argv[]) {
+
+	status = SlvStatus();
+
+	parameter_arguments.clear();
+	solo_arguments.clear();
+
+	for (int i = 1; i < _argc; i++) {
+		bool l_parameter = false;
+		if (_argv[i][0] == '-') {
+
+			bool l_value = i < _argc - 1;
+			if (l_value) {
+				bool l_value2 = _argv[i + 1][0] != '-';// if front of next argument has no '-'
+				bool l_value_dash = _argv[i + 1][0] == '-';// if front of next argument is '-', then check for value
+				bool l_value_number = false;
+				if (l_value_dash) {
+					l_value_number = (std::isdigit(_argv[i + 1][1]) || (std::strcmp(_argv[i + 1], "-inf") == 0));
+				}
+				l_value &= (l_value2 || (l_value_dash && l_value_number));
+			}
+
+			if (l_value) {
+
+				if (std::strcmp(_argv[i], "-glove")) {
+					parameter_arguments[_argv[i]].push_back(_argv[i + 1]);
+				} else {
+					glove_argument = _argv[i + 1];
+				}
+				l_parameter = true;
+			}
+		}
+
+		if (!l_parameter) {
+			if (std::strcmp(_argv[i], "-glove")) {
+				solo_arguments.push_back(_argv[i]);
+			}
+		} else {
+			i++;
+		}
+	}
+
+}
+
+inline void SlvCLI::aggregate_quotes(std::vector<std::string>& _args, bool _l_remove_quotes) {
+
+	for (auto it = _args.begin(); it != _args.end(); ++it) {
+		if (it->front() == '\"') {
+			std::string sum;
+			auto it2 = it;
+			bool l_found_end = false;
+			while (!l_found_end && it2 != _args.end()) {
+				if (!sum.empty()) sum += " ";
+				sum += *it2;
+				l_found_end = (it2->back() == '\"');
+				++it2;
+			}
+			if (l_found_end) {
+
+				if (_l_remove_quotes) {
+					sum.erase(sum.begin());
+					sum.erase(std::prev(sum.end()));
+				}
+
+				it = _args.erase(it, it2);
+				it = _args.insert(it, sum);
+			}
+		}
+	}
+
+}
+
+inline void SlvCLI::Arguments::parse(const std::string& _args, std::vector<std::string> _arg_names, std::vector<std::string> _solo_arg_names) {
+
+	status = SlvStatus();
+
+	// If the argument names are not provided, then the arguments are implicitly considered to be alternatively: name/value
+	bool l_consecutive_arguments = (_arg_names.empty() && _solo_arg_names.empty());
+
+	bool l_conflict = false;
+	for (auto it = _arg_names.begin(); it != _arg_names.end(); ++it) {
+		if (slv::vector::find(*it, _solo_arg_names)) {
+			if (_args.find(*it) != std::string::npos) {// if the conflicting parameter is involved in the arguments
+				status += SlvStatus(SlvStatus::statusType::warning, "Parameter " + *it + " is both a value and an activation (boolean).");
+				l_conflict = true;
+			}
+		}
+	}
+
+	if (!l_conflict) {
+		std::vector<std::string> args = slv::string::read_datas_line<std::string>(_args, " ");
+
+		aggregate_quotes(args, true);
+
+		for (auto it = args.begin(); it != args.end(); ++it) {
+			if (l_consecutive_arguments || slv::vector::find(*it, _arg_names)) {
+				if (std::next(it) != args.end()) {
+					parameter_arguments[*it].push_back(*++it);
+				} // else: problem with arguments. l_consecutive_arguments likely to be false instead of true.
+			} else if (slv::vector::find(*it, _solo_arg_names)) {
+				solo_arguments.push_back(*it);
+			}
+		}
+	}
+
+}
+
+inline void SlvCLI::Arguments::filter(const std::vector<std::string>& _arguments_remaining) {
+
+	for (Tparameters::const_iterator it = parameter_arguments.begin(); it != parameter_arguments.end();) {
+
+		if (!slv::vector::find(it->first, _arguments_remaining)) {
+			it = parameter_arguments.erase(it);
+		} else {
+			++it;
+		}
+
+	}
+
+	for (std::vector<std::string>::const_iterator it = solo_arguments.begin(); it != solo_arguments.end();) {
+
+		if (!slv::vector::find(*it, _arguments_remaining)) {
+			it = solo_arguments.erase(it);
+		} else {
+			++it;
+		}
+
+	}
+
+}
+
+inline std::pair<int, char**> SlvCLI::get_arguments(const std::vector< std::pair<std::string, std::string> >& _parameter_arguments, const std::vector<std::string>& _solo_arguments, bool _l_CLI_mode) {
+
+	std::vector< std::pair<std::string, std::string> > parameter_arguments;
+	for (std::vector< std::pair<std::string, std::string> >::const_iterator it = _parameter_arguments.begin(); it != _parameter_arguments.end(); ++it) {
+		if (it->first.front() == '-' || !_l_CLI_mode) {
+			parameter_arguments.push_back(*it);
+		}
+	}
+
+	std::vector<std::string> solo_arguments;
+	for (std::vector<std::string>::const_iterator it = _solo_arguments.begin(); it != _solo_arguments.end(); ++it) {
+		if (it->front() == '-' || !_l_CLI_mode) {
+			solo_arguments.push_back(*it);
+		}
+	}
+
+	int Nfilled_parameters = 0;
+	for (int i = 0; i < parameter_arguments.size(); i++) {
+		if (!parameter_arguments[i].second.empty()) {
+			Nfilled_parameters++;
+		}
+	}
+
+	int argc = 2 * Nfilled_parameters + (int)solo_arguments.size() + 1;
+	char** argv = new char* [argc];
+
+	int k_arg = 0;
+	for (int i = 0; i < parameter_arguments.size(); i++) {
+
+		if (!parameter_arguments[i].second.empty()) {
+
+			argv[1 + k_arg] = new char[parameter_arguments[i].first.size() + 1];
+#ifdef COMPILER_GCC
+			strcpy(argv[1 + k_arg], parameter_arguments[i].first.c_str());
+#else
+			strcpy_s(argv[1 + k_arg], parameter_arguments[i].first.size() + 1, parameter_arguments[i].first.c_str());
+#endif
+			k_arg++;
+
+			argv[1 + k_arg] = new char[parameter_arguments[i].second.size() + 1];
+#ifdef COMPILER_GCC
+			strcpy(argv[1 + k_arg], parameter_arguments[i].second.c_str());
+#else
+			strcpy_s(argv[1 + k_arg], parameter_arguments[i].second.size() + 1, parameter_arguments[i].second.c_str());
+#endif
+			k_arg++;
+
+		}
+
+	}
+
+	for (int i = 0; i < solo_arguments.size(); i++) {
+		argv[1 + 2 * Nfilled_parameters + i] = new char[solo_arguments[i].size() + 1];
+#ifdef COMPILER_GCC
+		strcpy(argv[1 + 2 * Nfilled_parameters + i], solo_arguments[i].c_str());
+#else
+		strcpy_s(argv[1 + 2 * Nfilled_parameters + i], solo_arguments[i].size() + 1, solo_arguments[i].c_str());
+#endif
+	}
+
+	return { argc, argv };
+
+}
+
+#ifndef GLOVE_DISABLE_QT
+
 inline GlvParametrizationDialog_base::GlvParametrizationDialog_base(bool _l_dialog, bool _l_deny_invalid_parameters, QWidget* _parent) :QDialog(_parent, Qt::WindowContextHelpButtonHint | Qt::WindowCloseButtonHint) {
 
     if (_parent) this->setModal(true);
@@ -27112,6 +27026,23 @@ inline GlvParametersWidget_base::GlvParametersWidget_base() {
 	main_layout->setContentsMargins(layout_margin(), layout_margin(), 0, layout_margin());
 	this->setLayout(main_layout);
 
+	options_widget = new QWidget;
+	QHBoxLayout* options_layout = new QHBoxLayout;
+	options_layout->setContentsMargins(0, 0, layout_margin(), 0);
+	options_widget->setLayout(options_layout);
+	main_layout->addWidget(options_widget, 0, Qt::AlignRight | Qt::AlignTop);
+
+	QLineEdit* filter_parameters_widget = new QLineEdit;
+	filter_parameters_widget->setPlaceholderText(tr("Filter parameters"));
+	filter_parameters_widget->setToolTip(tr("Case sensitive filtering."));
+	connect(filter_parameters_widget, SIGNAL(textChanged(QString)), this, SLOT(filter_parameters(QString)));
+	options_layout->addWidget(filter_parameters_widget);
+
+	parse_arguments_button = new QPushButton(tr("Parse"));
+	parse_arguments_button->setToolTip(tr("Enter arguments as command line interface."));
+	connect(parse_arguments_button, SIGNAL(clicked(bool)), this, SLOT(parse_arguments()));
+	options_layout->addWidget(parse_arguments_button);
+
 	parameters_widget = new QWidget;
 	parameters_widget->installEventFilter(this);
 	vertical_layout = new QVBoxLayout;
@@ -27123,11 +27054,13 @@ inline GlvParametersWidget_base::GlvParametersWidget_base() {
 	main_layout->addWidget(parameters_widget);
 
 	set_scrollable(true);
+	set_options_enabled(false);
 
 	l_height_decreased = false;
 	l_adapt_max_height = false;
 
 	save_load_widget = NULL;
+
 }
 
 inline GlvParametersWidget_base::~GlvParametersWidget_base() {
@@ -27246,6 +27179,18 @@ inline void GlvParametersWidget_base::set_adapt_max_height(bool _l_adapt) {
 
 }
 
+inline void GlvParametersWidget_base::set_options_enabled(bool _l_enabled) {
+
+	options_widget->setVisible(_l_enabled);
+	if (_l_enabled) {
+		main_layout->setContentsMargins(layout_margin(), 0, 0, layout_margin());
+	} else {
+		main_layout->setContentsMargins(layout_margin(), layout_margin(), 0, layout_margin());
+
+	}
+
+}
+
 inline void GlvParametersWidget_base::show_parameters(bool _l_show) {
 
 	parameters_widget->setVisible(_l_show);
@@ -27254,6 +27199,140 @@ inline void GlvParametersWidget_base::show_parameters(bool _l_show) {
 		save_load_widget->setVisible(_l_show);
 	}
 
+}
+
+inline void GlvParametersWidget_base::parse_arguments() {
+
+	GlvParametersParserConfigDialog dialog;
+	SlvParametersParserConfig parser_config;
+	if (!CLI_arguments_line.empty()) {
+		parser_config.set_arguments(CLI_arguments_line);
+		parser_config.set_CLI_mode(true);
+	}
+	dialog.set_parametrization(parser_config);
+	if (dialog.exec() == QDialog::Accepted) {
+		if (dialog.get_parametrization().get_CLI_mode()) {
+			// save CLI arguments
+			CLI_arguments_line = dialog.get_parametrization().get_arguments();
+		} else {
+			CLI_arguments_line.clear();
+		}
+		SlvStatus status = parse_arguments(dialog.get_parametrization().get_arguments(), !dialog.get_parametrization().get_CLI_mode(), dialog.get_parametrization().get_CLI_mode());
+		glv::flag::showQMessageBox(QObject::tr("Arguments conflict"), status, true);
+
+		if (dialog.get_parametrization().get_show_parsed_argument_only()) {
+			if (!CLI_parameters.empty()) {
+				std::string exclude_string = std::to_string(std::nanl(""));
+				filter_parameters(exclude_string, false, false);
+			}
+			for (auto it = CLI_parameters.begin(); it != CLI_parameters.end(); ++it) {
+				filter_parameters(*it, true, true);
+			}
+		} else {
+			filter_parameters("", false, false);
+		}
+	}
+
+}
+
+inline bool GlvParametersWidget_base::filter_parameters(QString _filter) {
+
+	return filter_parameters(_filter.toStdString(), false, false);
+
+}
+
+inline bool GlvParametersWidget_base::filter_parameters(std::string _filter, bool _l_exact_match, bool _l_set_visible_only) {
+
+	bool l_all_filtered = true;
+
+	if (layout_type == LayoutType::Vertical) {
+
+		for (int i = 0; i < vertical_layout->count(); i++) {
+			GlvDescribedWidget_base* parameter_widget = dynamic_cast<GlvDescribedWidget_base*>(vertical_layout->itemAt(i)->widget());
+			if (parameter_widget) {
+
+				GlvParametersWidget_base* parametrization_widget = dynamic_cast<GlvParametersWidget_base*>(parameter_widget->get_data_widget());
+				if (parametrization_widget) {
+					bool l_all_filtered_rec = parametrization_widget->filter_parameters(_filter, _l_exact_match, _l_set_visible_only);
+					if (!l_all_filtered_rec) {
+						l_all_filtered = false;
+					}
+					if (!_l_set_visible_only || !l_all_filtered_rec) {
+						parameter_widget->setVisible(!l_all_filtered_rec);
+						if (!l_all_filtered_rec && !_filter.empty()) {
+							parametrization_widget->setChecked(true);// open the parametrization widget
+						}
+					}
+				} else {
+					bool l_found;
+					if (!_l_exact_match) {
+						l_found = (parameter_widget->get_data_name().find(_filter) != std::string::npos);
+						l_found |= (parameter_widget->get_data_alias().find(_filter) != std::string::npos);
+					} else {
+						l_found = (parameter_widget->get_data_name() == _filter);
+						l_found |= (parameter_widget->get_data_alias() == _filter);
+					}
+					if (!_l_set_visible_only || l_found) {
+						parameter_widget->setVisible(l_found);
+					}
+					if (l_found) l_all_filtered = false;
+				}
+				
+			}
+		}
+
+	} else if (layout_type == LayoutType::Grid) {
+
+		for (int i = 0; i < grid_layout->rowCount(); i++) {
+			QLabel* parameter_label = dynamic_cast<QLabel*>(grid_layout->itemAtPosition(i, 0)->widget());
+			if (parameter_label) {
+				GlvWidget_base* widget_base = dynamic_cast<GlvWidget_base*>(grid_layout->itemAtPosition(i, 1)->widget());
+				GlvParametersWidget_base* parametrization_widget = dynamic_cast<GlvParametersWidget_base*>(widget_base->get_data_widget());
+				if (parametrization_widget) {
+
+					bool l_all_filtered_rec = parametrization_widget->filter_parameters(_filter, _l_exact_match, _l_set_visible_only);
+					if (!l_all_filtered_rec) {
+						l_all_filtered = false;
+					}
+					if (!_l_set_visible_only || !l_all_filtered_rec) {
+						parameter_label->setVisible(!l_all_filtered_rec);
+						parametrization_widget->setVisible(!l_all_filtered_rec);
+						if (!l_all_filtered_rec && !_filter.empty()) {
+							parametrization_widget->setChecked(true);// open the parametrization widget
+						}
+						if (grid_layout->columnCount() == 3) {// if optional widget
+							QLayoutItem* layout_item = grid_layout->itemAtPosition(i, 2);
+							if (layout_item) layout_item->widget()->setVisible(!l_all_filtered_rec);
+						}
+					}
+					
+				} else {
+					std::string name = parameter_label->text().toStdString();
+					std::string alias = parameter_label->toolTip().toStdString();
+					bool l_found;
+					if (!_l_exact_match) {
+						l_found = (name.find(_filter) != std::string::npos);
+						l_found |= (alias.find(_filter) != std::string::npos);
+					} else {
+						l_found = (name == _filter);
+						l_found |= (alias == _filter);
+					}
+					if (!_l_set_visible_only || l_found) {
+						parameter_label->setVisible(l_found);
+						for (int j = 1; j < grid_layout->columnCount(); j++) {
+							QLayoutItem* layout_item = grid_layout->itemAtPosition(i, j);
+							if (layout_item) layout_item->widget()->setVisible(l_found);
+						}
+					}
+					if (l_found) l_all_filtered = false;
+				}
+
+			}
+		}
+
+	}
+
+	return l_all_filtered;
 }
 
 inline bool GlvParametersWidget_base::has_height_decreased() const {
@@ -28121,6 +28200,404 @@ inline const SlvParametrization_base* GlvParamListDialog_base::get_parametrizati
 	}
 
 }
+
+inline GlvMapWidget_base::GlvMapWidget_base(QWidget* _parent) : QWidget(_parent) {
+
+    QString info;
+
+    buttons_widget = new QGroupBox(tr("Size"));
+    buttons_widget->setFlat(true);
+    buttons_widget->setCheckable(true);
+    connect(buttons_widget, SIGNAL(toggled(bool)), this, SLOT(show_map_edit(bool)));
+    QVBoxLayout* buttons_layout = new QVBoxLayout;
+    buttons_widget->setLayout(buttons_layout);
+    buttons_widget->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+
+    insert_widget = new QWidget;
+    insert_layout = new QHBoxLayout;
+    insert_widget->setLayout(insert_layout);
+    button_insert = new QPushButton(tr("<"));
+    button_insert->setFixedWidth(30);
+    info = QString(tr("Insert an element at the specified key"));
+    button_insert->setWhatsThis(info);
+    button_insert->setToolTip(info);
+    connect(button_insert, SIGNAL(clicked()), this, SLOT(insertValue()));
+    insert_layout->addWidget(button_insert);
+    buttons_layout->addWidget(insert_widget);
+    buttons_layout->setContentsMargins(0, 3, 0, 0);
+
+    insert_layout->setContentsMargins(0, 0, 0, 0);
+
+    widget_items = new QWidget;
+    layout_items = new QVBoxLayout;
+    layout_items->setContentsMargins(6, 3, 6, 3);// vertical margin makes checking/unchecking the group box have the same size if content is empty
+    widget_items->setLayout(layout_items);
+
+    map_widget = new QGroupBox;
+    QVBoxLayout* layout_group = new QVBoxLayout;
+    layout_group->setContentsMargins(0, 0, 0, 0);
+    layout_group->addWidget(widget_items);
+    map_widget->setLayout(layout_group);
+
+    QHBoxLayout* layout = new QHBoxLayout;
+    layout->addWidget(map_widget);
+    layout->addWidget(buttons_widget, 0, Qt::AlignTop);
+    setLayout(layout);
+
+    layout->setContentsMargins(0, 0, 0, 0);
+
+    set_checkable(false);
+    connect(map_widget, SIGNAL(toggled(bool)), this, SLOT(show_map_items(bool)));
+    buttons_widget->setChecked(false);
+
+}
+
+inline GlvMapWidget_base::~GlvMapWidget_base() {
+
+}
+
+inline void GlvMapWidget_base::set_editable(bool _l_editable) {
+    QWidget::setEnabled(_l_editable);
+}
+
+inline void GlvMapWidget_base::set_checkable(bool _l_checkable) {
+    map_widget->setCheckable(_l_checkable);
+    QString title;
+    if (_l_checkable) {
+        title = tr("map");
+    }
+    map_widget->setTitle(title);
+}
+
+inline void GlvMapWidget_base::set_checked(bool _l_checked) {
+
+    map_widget->setChecked(_l_checked);
+
+}
+
+inline void GlvMapWidget_base::set_items_top_aligment(bool _l_top) {
+
+    if (_l_top) {
+        layout_items->setAlignment(Qt::AlignTop);
+    } else {
+        layout_items->setAlignment(Qt::AlignVCenter);
+    }
+
+}
+
+inline void GlvMapWidget_base::edit_set_checked(bool _l_checked) {
+
+    buttons_widget->setChecked(_l_checked);
+
+}
+
+inline void GlvMapWidget_base::show_map_items(bool _l_show) {
+
+    widget_items->setVisible(_l_show);
+
+}
+
+inline void GlvMapWidget_base::show_map_edit(bool _l_show) {
+
+    insert_widget->setVisible(_l_show);
+
+}
+
+inline GlvMapWidgetItem_base::GlvMapWidgetItem_base() {
+
+	layout = new QHBoxLayout;
+	this->setLayout(layout);
+	layout->setContentsMargins(0, 0, 0, 0);
+
+}
+
+inline GlvMapWidgetItem_base::~GlvMapWidgetItem_base() {
+
+}
+
+#endif
+
+inline SlvProportion::SlvProportion(Tvalue _value) {
+    *this = _value;
+}
+
+inline SlvProportion::~SlvProportion() {
+
+}
+
+inline SlvProportion::operator Tvalue() const {
+
+    return value;
+}
+
+inline SlvProportion& SlvProportion::operator=(const Tvalue& _value) {
+
+    if (_value < 0. || _value > 1.) {
+        slv::flag::ISSUE(slv::flag::FlagType::Warning, "can't set SlvProportion with value : ", _value);
+    }
+
+    value = std::max(0., std::min(1., _value));
+
+    return *this;
+}
+
+inline bool SlvProportion::readB(std::ifstream& _input_file) {
+
+    return slv::rw::readB(value, _input_file);
+}
+
+inline void SlvProportion::writeB(std::ofstream& _output_file) const {
+
+    slv::rw::writeB(value, _output_file);
+}
+
+inline void SlvProportion::istream(std::istream& _is) {
+
+    std::string tmp;
+    _is >> tmp;
+
+    try {
+        value = std::stod(tmp);
+        value /= 100.;
+    } catch (const std::invalid_argument&) {
+        
+    }
+    
+}
+
+inline void SlvProportion::ostream(std::ostream& _os) const {
+
+    _os << value * 100. << "%";
+}
+
+#ifndef GLOVE_DISABLE_QT
+
+inline GlvProportionWidget::GlvProportionWidget(SlvProportion _proportion, int _slider_size, QWidget* _parent) {
+    
+    QGridLayout* layout = new QGridLayout;
+    layout->setContentsMargins(0, 0, 0, 0);
+    
+    value_widget = new QDoubleSpinBox;
+    value_widget->setMaximum(100);
+    value_widget->setMinimum(0);
+    value_widget->setDecimals(2);
+
+    layout->addWidget(value_widget, 0, 0);
+    percentage_label = new QLabel("%");
+    layout->addWidget(percentage_label, 0, 1);
+    slider = new QSlider;
+    slider->setMinimum(0);
+    slider->setOrientation(Qt::Horizontal);
+    layout->addWidget(slider, 1, 0);
+    setLayout(layout);
+
+    set_slider_size(_slider_size);
+
+    connect(value_widget, SIGNAL(valueChanged(double)), this, SLOT(valueChanged_slot(double)));
+    
+    //sync spinbox and slider
+    connect(slider, SIGNAL(valueChanged(int)), this, SLOT(set_value_to_spinbox(int)));
+    connect(value_widget, SIGNAL(valueChanged(double)), this, SLOT(set_value_to_slider(double)));
+    
+    set_value(_proportion);
+}
+
+inline GlvProportionWidget::~GlvProportionWidget() {
+    
+}
+
+inline void GlvProportionWidget::set_slider_size(int _slider_size) {
+
+    slider_size = _slider_size;
+
+    value_widget->setSingleStep(double(100) / slider_size);
+    slider->setMaximum(slider_size);
+
+    set_value_to_slider(value_widget->value());
+
+}
+
+inline SlvProportion GlvProportionWidget::get_value() const {
+    
+    return SlvProportion(value_widget->value() / 100);
+}
+
+inline void GlvProportionWidget::set_value(const SlvProportion& _proportion) {
+    
+    value_widget->setValue(_proportion * 100);
+}
+
+inline void GlvProportionWidget::set_editable(bool l_editable) {
+    
+    value_widget->setEnabled(l_editable);
+    slider->setEnabled(l_editable);
+    
+}
+
+inline void GlvProportionWidget::set_value_to_spinbox(int _value) {
+    
+    value_widget->setValue(double(_value) * double(100) / slider_size);
+    
+}
+
+inline void GlvProportionWidget::set_value_to_slider(double _value) {
+
+    slider->setValue(int(_value * slider_size / 100));
+    
+}
+
+inline void GlvProportionWidget::valueChanged_slot(double _value) {
+    
+    emit valueChanged(_value);
+
+}
+
+#define Tdata SlvProportion
+
+inline GlvWidgetData<Tdata>::GlvWidgetData(Tdata _ratio, QWidget* _parent) :GlvProportionWidget(_ratio, 100, _parent) {
+
+}
+
+inline GlvWidgetData<Tdata>::~GlvWidgetData() {
+
+}
+
+#undef Tdata
+
+inline GlvOpenDirectory::GlvOpenDirectory(SlvDirectory _directory, QWidget* _parent) {
+
+    l_ready = false;
+
+    line_edit = new QLineEdit;
+    push_button = new QPushButton(QString(tr("Open directory")));
+
+    QHBoxLayout* layout = new QHBoxLayout;
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(line_edit);
+    layout->addWidget(push_button);
+
+    this->setLayout(layout);
+
+    connect(push_button, SIGNAL(clicked()), this, SLOT(getExistingDirectory()));
+    connect(line_edit, SIGNAL(textChanged(const QString&)), this, SLOT(directory_changed_slot(const QString&)));
+
+    status = new QLabel("Ok");
+    status->setToolTip(tr("Does the directory exist."));
+    layout->addWidget(status);
+
+    set_directory(_directory);
+}
+
+inline GlvOpenDirectory::GlvOpenDirectory(QString _default, QWidget* _parent) :GlvOpenDirectory(SlvDirectory(_default.toStdString()), _parent) {
+
+}
+
+inline GlvOpenDirectory::~GlvOpenDirectory() {
+
+}
+
+inline SlvDirectory GlvOpenDirectory::get_directory() const {
+
+    std::string directory_path = line_edit->text().toStdString();
+    if (!directory_path.empty() && directory_path.back() != '/') {
+        directory_path.push_back('/');
+    }
+    SlvDirectory directory(directory_path);
+    return directory;
+
+}
+
+inline void GlvOpenDirectory::set_directory(const SlvDirectory& _directory) {
+
+    QString directory_string = glv::toQString(_directory.get_path());
+
+    QDir directory_dir(directory_string);
+#ifdef QT_DIRECTORY_EXISTS
+    l_ready = directory_dir.exists();
+#else
+    l_ready = SlvDirectory(directory_string.toStdString()).exists();
+#endif
+
+    line_edit->setText(directory_string);
+
+    directory_changed_slot(line_edit->text());
+}
+
+inline bool GlvOpenDirectory::is_ready() const {
+
+    return l_ready;
+
+}
+
+inline void GlvOpenDirectory::set_editable(bool l_editable) {
+
+    line_edit->setReadOnly(!l_editable);
+    if (l_editable) {
+        push_button->show();
+    } else {
+        push_button->hide();
+    }
+
+}
+
+inline void GlvOpenDirectory::getExistingDirectory() {
+
+    SlvDirectory directory = get_directory();
+
+    QString default_directory_name = QString(SlvFileMgr::get_path(directory).c_str());
+    QDir default_directory(default_directory_name);
+    QString new_directory_name;
+    if (default_directory.exists()) {
+        new_directory_name = QFileDialog::getExistingDirectory(this, tr("Open directory"), default_directory_name);
+    } else {
+        new_directory_name = QFileDialog::getExistingDirectory(this, tr("Open directory"), qApp->applicationDirPath());
+    }
+
+    if (!new_directory_name.isEmpty()) {
+        QDir new_directory(new_directory_name);
+        if (!new_directory.exists()) {
+            QMessageBox::information(this, tr("Unable to open directory"), new_directory.path());
+        } else {
+            l_ready = true;
+            if (!new_directory_name.endsWith('/')) {
+                new_directory_name.push_back('/');
+            }
+            line_edit->setText(new_directory_name);
+            directory = SlvDirectory(new_directory_name.toStdString());
+        }
+    }
+
+}
+
+inline void GlvOpenDirectory::directory_changed_slot(const QString& _directory_path) {
+
+    update_readiness();
+
+    status->setEnabled(l_ready);
+
+    emit directory_changed(_directory_path);
+
+}
+
+inline void GlvOpenDirectory::update_readiness() {
+
+    QDir directory(line_edit->text());
+
+    l_ready = directory.exists();
+
+}
+
+#define Tdata SlvDirectory
+
+inline GlvWidgetData<Tdata>::GlvWidgetData(Tdata _file, QWidget* _parent) :GlvOpenDirectory(_file, _parent) {
+
+}
+
+inline GlvWidgetData<Tdata>::~GlvWidgetData() {
+
+}
+
+#undef Tdata
 
 #endif
 
