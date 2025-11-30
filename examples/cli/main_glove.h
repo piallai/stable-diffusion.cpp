@@ -10,6 +10,7 @@ glvm_SlvEnum_named(SamplingMethod, euler, "euler", euler_a, "euler_a", heun, "he
 glvm_SlvEnum(Rng, std_default, cuda);
 glvm_SlvEnum_named(Prediction, Default, "default", eps, "eps", v, "v", edm_v, "edm_v", sd3_flow, "sd3_flow", flux_flow, "flux_flow");
 glvm_SlvEnum(Scheduler, discrete, karras, exponential, ays, gits, smoothstep, sgm_uniform, simple);
+glvm_SlvEnum(Preview, none, proj, tae, vae);
 
 glvm_parametrization(GlvSDParamsPhotomaker, "Photomaker params",
                         photo_maker_path, SlvFile, "--photo-maker", "path to PHOTOMAKER model", SlvFile(SlvFile::IO::Read),
@@ -42,7 +43,15 @@ glvm_parametrization(GlvSDParamsOnCPU, "On CPU",
                         clip_on_cpu, bool, "--clip-on-cpu", "keep clip in cpu (for low vram)", false,
                         vae_on_cpu, bool, "--vae-on-cpu", "keep vae in cpu (for low vram)", false)
 
+glvm_parametrization(GlvSDParamsPreview, "Preview params",
+    preview, Preview, "--preview", "preview method. must be one of the following [none, proj, tae, vae].] (default is none)", Preview::none,
+    preview_path, SlvFile, "--preview-path", "path to write preview image to (default: ./preview.png)", SlvFile("./preview.png", SlvFileExtensions({".png", ".jpg", ".jpeg", ".jpe"}), SlvFile::IO::Write),
+    preview_interval, unsigned int, "--preview-interval", "interval in denoising steps between consecutive updates of the image preview file (default is 1, meaning updating at every step)", 1,
+    preview_noisy, bool, "--preview-noisy", "enables previewing noisy inputs of the models rather than the denoised outputs", true
+)
+
 glvm_parametrization(GlvSDParamsAdvanced, "Advanced params",
+                        preview_params, GlvSDParamsPreview, "Preview", "", GlvSDParamsPreview(),
                         rng, Rng, "--rng", "RNG (default: cuda)", Rng::cuda,
                         threads, int, "--threads@-t", "number of threads to use during computation (default: -1) \nIf threads <= 0, then threads will be set to the number of CPU physical cores", -1,
                         upscale_model, SlvFile, "--upscale-model", "path to esrgan model. Upscale images after generate, just RealESRGAN_x4plus_anime_6B supported by now", SlvFile(SlvFile::IO::Read),
@@ -60,6 +69,7 @@ glvm_parametrization(GlvSDParamsAdvanced, "Advanced params",
                         diffusion_fa, bool, "--diffusion-fa", "use flash attention in the diffusion model (for low vram)\nMight lower quality, since it implies converting k and v to f16.\nThis might crash if it is not supported by the backend.", false,
                         diffusion_conv_direct, bool, "--diffusion-conv-direct", "use ggml_conv2d_direct in the diffusion model", false,
                         vae_conv_direct, bool, "--vae-conv-direct", "use ggml_conv2d_direct in the vae model", false,
+                        easycache, bool, "--easycache", "enable EasyCache for DiT models with optional \"threshold,start_percent,end_percent\" (default: 0.2,0.15,0.95)\nCan not set values for now. Parsing of values would be simpler in a vector format such as: [0.2,0.15,0.95]", false,             
                         canny, bool, "--canny", "apply canny preprocessor (edge detection)", false,
                         color, bool, "--color", "colors the logging tags according to level", false,
                         increase_ref_index, bool, "--increase-ref-index", "automatically increase the indices of references images based on the order they are listed (starting with 1).", false,
