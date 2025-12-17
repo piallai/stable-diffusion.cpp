@@ -50,7 +50,7 @@ enum SDMode {
     MODE_COUNT
 };
 
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(SD_EXAMPLES_GLOVE_GUI)
 static std::string utf16_to_utf8(const std::wstring& wstr) {
     if (wstr.empty())
         return {};
@@ -191,8 +191,16 @@ static void log_printf(sd_log_level_t level, const char* file, int line, const c
 
 #define LOG_DEBUG(format, ...) log_printf(SD_LOG_DEBUG, __FILE__, __LINE__, format, ##__VA_ARGS__)
 #define LOG_INFO(format, ...) log_printf(SD_LOG_INFO, __FILE__, __LINE__, format, ##__VA_ARGS__)
+#ifndef SD_EXAMPLES_GLOVE_GUI
 #define LOG_WARN(format, ...) log_printf(SD_LOG_WARN, __FILE__, __LINE__, format, ##__VA_ARGS__)
+#else
+#define LOG_WARN(format, ...) GlvApp::show(SlvStatus(SlvStatus::statusType::warning, format, ##__VA_ARGS__), true);
+#endif
+#ifndef SD_EXAMPLES_GLOVE_GUI
 #define LOG_ERROR(format, ...) log_printf(SD_LOG_ERROR, __FILE__, __LINE__, format, ##__VA_ARGS__)
+#else
+#define LOG_ERROR(format, ...) GlvApp::show(SlvStatus(SlvStatus::statusType::critical, format, ##__VA_ARGS__), true);
+#endif
 
 struct StringOption {
     std::string short_name;
@@ -334,6 +342,28 @@ struct ArgOptions {
     }
 };
 
+#ifdef SD_EXAMPLES_GLOVE_GUI
+template <class Toption>
+bool checkOptionsInCLI(int argc, const char** argv, const std::vector<Toption>& _options) {
+    std::string arg;
+    bool found_all_options = true;
+    for (auto option = _options.cbegin(); option != _options.cend(); ++option) {
+        bool found_arg = false;
+        for (int i = 1; i < argc && !found_arg; i++) {
+            arg = argv[i];
+            if (arg == option->long_name || arg == option->short_name) {
+                found_arg = true;
+            }
+        }
+        if (!found_arg) {
+            fprintf(stderr, "error: can not find argument for option: %s\n", option->long_name.c_str());
+        }
+        found_all_options &= found_arg;
+    }
+    return found_all_options;
+}
+#endif
+
 static bool parse_options(int argc, const char** argv, const std::vector<ArgOptions>& options_list) {
     bool invalid_arg = false;
     std::string arg;
@@ -411,6 +441,18 @@ static bool parse_options(int argc, const char** argv, const std::vector<ArgOpti
             return false;
         }
     }
+
+#if defined(SD_EXAMPLES_GLOVE_GUI) && defined(CHECK_ARGS)
+    // Check that every option exists in CLI args
+    bool found_options = checkOptionsInCLI(argc, argv, options.string_options);
+    found_options &= checkOptionsInCLI(argc, argv, options.int_options);
+    found_options &= checkOptionsInCLI(argc, argv, options.float_options);
+    found_options &= checkOptionsInCLI(argc, argv, options.bool_options);
+    found_options &= checkOptionsInCLI(argc, argv, options.manual_options);
+    if (!found_options) {
+        __debugbreak();
+    }
+#endif
 
     return true;
 }
