@@ -1,4 +1,4 @@
-set(TARGET sd)
+set(TARGET sd-cli)
 
 if(SD_EXAMPLES_GLOVE_GUI)
 	add_executable(${TARGET} main.cpp main_glove.h ${CMAKE_SOURCE_DIR}/thirdparty/glove.h)

@@ -95,20 +95,6 @@ bool is_directory(const std::string& path) {
     return (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY));
 }
 
-std::string get_full_path(const std::string& dir, const std::string& filename) {
-    std::string full_path = dir + "\\" + filename;
-
-    WIN32_FIND_DATA find_file_data;
-    HANDLE hFind = FindFirstFile(full_path.c_str(), &find_file_data);
-
-    if (hFind != INVALID_HANDLE_VALUE) {
-        FindClose(hFind);
-        return full_path;
-    } else {
-        return "";
-    }
-}
-
 #else  // Unix
 #include <dirent.h>
 #include <sys/stat.h>
@@ -121,26 +107,6 @@ bool file_exists(const std::string& filename) {
 bool is_directory(const std::string& path) {
     struct stat buffer;
     return (stat(path.c_str(), &buffer) == 0 && S_ISDIR(buffer.st_mode));
-}
-
-// TODO: add windows version
-std::string get_full_path(const std::string& dir, const std::string& filename) {
-    DIR* dp = opendir(dir.c_str());
-
-    if (dp != nullptr) {
-        struct dirent* entry;
-
-        while ((entry = readdir(dp)) != nullptr) {
-            if (strcasecmp(entry->d_name, filename.c_str()) == 0) {
-                closedir(dp);
-                return dir + "/" + entry->d_name;
-            }
-        }
-
-        closedir(dp);
-    }
-
-    return "";
 }
 
 #endif
@@ -378,19 +344,19 @@ const char* sd_get_system_info() {
     static char buffer[1024];
     std::stringstream ss;
     ss << "System Info: \n";
-    ss << "    SSE3 = " << ggml_cpu_has_sse3() << std::endl;
-    ss << "    AVX = " << ggml_cpu_has_avx() << std::endl;
-    ss << "    AVX2 = " << ggml_cpu_has_avx2() << std::endl;
-    ss << "    AVX512 = " << ggml_cpu_has_avx512() << std::endl;
-    ss << "    AVX512_VBMI = " << ggml_cpu_has_avx512_vbmi() << std::endl;
-    ss << "    AVX512_VNNI = " << ggml_cpu_has_avx512_vnni() << std::endl;
-    ss << "    FMA = " << ggml_cpu_has_fma() << std::endl;
-    ss << "    NEON = " << ggml_cpu_has_neon() << std::endl;
-    ss << "    ARM_FMA = " << ggml_cpu_has_arm_fma() << std::endl;
-    ss << "    F16C = " << ggml_cpu_has_f16c() << std::endl;
-    ss << "    FP16_VA = " << ggml_cpu_has_fp16_va() << std::endl;
-    ss << "    WASM_SIMD = " << ggml_cpu_has_wasm_simd() << std::endl;
-    ss << "    VSX = " << ggml_cpu_has_vsx() << std::endl;
+    ss << "    SSE3 = " << ggml_cpu_has_sse3() << " | ";
+    ss << "    AVX = " << ggml_cpu_has_avx() << " | ";
+    ss << "    AVX2 = " << ggml_cpu_has_avx2() << " | ";
+    ss << "    AVX512 = " << ggml_cpu_has_avx512() << " | ";
+    ss << "    AVX512_VBMI = " << ggml_cpu_has_avx512_vbmi() << " | ";
+    ss << "    AVX512_VNNI = " << ggml_cpu_has_avx512_vnni() << " | ";
+    ss << "    FMA = " << ggml_cpu_has_fma() << " | ";
+    ss << "    NEON = " << ggml_cpu_has_neon() << " | ";
+    ss << "    ARM_FMA = " << ggml_cpu_has_arm_fma() << " | ";
+    ss << "    F16C = " << ggml_cpu_has_f16c() << " | ";
+    ss << "    FP16_VA = " << ggml_cpu_has_fp16_va() << " | ";
+    ss << "    WASM_SIMD = " << ggml_cpu_has_wasm_simd() << " | ";
+    ss << "    VSX = " << ggml_cpu_has_vsx() << " | ";
     snprintf(buffer, sizeof(buffer), "%s", ss.str().c_str());
     return buffer;
 }
