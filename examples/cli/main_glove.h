@@ -4,7 +4,7 @@
 #define GLOVE_ENABLE_JSON
 #include "glove.h"
 
-glvm_SlvEnum(ProcessingMode, img_gen, vid_gen, convert, upscale);
+glvm_SlvEnum(ProcessingMode, img_gen, vid_gen, upscale, convert);
 glvm_SlvEnum_named(WeightType, weight_file_type, "", f32, "f32", f16, "f16", q4_0, "q4_0", q4_1, "q4_1", q5_0, "q5_0", q5_1, "q5_1", q8_0, "q8_0", q2_k, "q2_k", q3_k, "q3_k", q4_k, "q4_k");
 glvm_SlvEnum_named(SamplingMethod, euler, "euler", euler_a, "euler_a", heun, "heun", dpm2, "dpm2", dpmpp2s_a, "dpm++2s_a", dpmpp2m, "dpm++2m", dpmpp2mv2, "dpm++2mv2", ipndm, "ipndm", ipndm_v, "ipndm_v", lcm, "lcm", ddim_trailing, "ddim_trailing", tcd, "tcd");
 glvm_SlvEnum(Rng, std_default, cuda, cpu);
@@ -152,9 +152,8 @@ glvm_parametrization(GlvSDParamsHighNoise, "SD params (high noise)",
     high_noise_steps, int, "--high-noise-steps", "(high noise) number of sample steps (default: -1 = auto)", -1)
 
 glvm_parametrization(GlvSDParams, "SD params",
-    mode, ProcessingMode, "--mode", "run mode, one of: [img_gen, convert], default: img_gen", ProcessingMode::img_gen,
+    mode, ProcessingMode, "--mode@-M", "run mode, one of [img_gen, vid_gen, upscale, convert], default: img_gen", ProcessingMode::img_gen,
     model, SlvFile, "--model@-m", "path to full model", SlvFile("./", SlvFileExtensions({".safetensors", ".ckpt"}), SlvFile::IO::Read),
-    model_addons, GlvSDModelAddons, "Model addons", "", GlvSDModelAddons(), photomaker_params, GlvSDParamsPhotomaker, "Photomaker", "", GlvSDParamsPhotomaker(),
     upscale_params, GlvSDParamsUpscale, "Upscale", "", GlvSDParamsUpscale(),
     chroma_params, GlvSDParamsChroma, "Chroma", "", GlvSDParamsChroma(),
     image_video_input_params, GlvSDParamsImageVideoInput, "Image/video input", "", GlvSDParamsImageVideoInput(),
