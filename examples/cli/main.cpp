@@ -629,7 +629,7 @@ int main(int argc, char* argv[]) {
     bool free_params_immediately = true;
 #ifdef SD_EXAMPLES_GLOVE_GUI
     free_params_immediately = !is_glove_recurrent;
-#else
+#endif
     sd_ctx_params_t sd_ctx_params = ctx_params.to_sd_ctx_params_t(vae_decode_only, free_params_immediately, cli_params.taesd_preview);
 
     sd_image_t* results = nullptr;
@@ -856,11 +856,11 @@ int main(int argc, char* argv[]) {
                 std::string final_image_path2 = i > 0 ? base_path2 + "_" + std::to_string(i + 1) + file_ext : base_path2 + file_ext;
                 if (is_jpg) {
                     stbi_write_jpg(final_image_path2.c_str(), results[i].width, results[i].height, results[i].channel,
-                                   results[i].data, 90, get_image_params(params, params.seed + i).c_str());
+                                   results[i].data, 90, get_image_params(cli_params, ctx_params, gen_params, gen_params.seed + i).c_str());
                     printf("save result JPEG image to '%s'\n", final_image_path2.c_str());
                 } else {
                     stbi_write_png(final_image_path2.c_str(), results[i].width, results[i].height, results[i].channel,
-                                   results[i].data, 0, get_image_params(params, params.seed + i).c_str());
+                                   results[i].data, 0, get_image_params(cli_params, ctx_params, gen_params, gen_params.seed + i).c_str());
                     printf("save result PNG image to '%s'\n", final_image_path2.c_str());
                 }
 

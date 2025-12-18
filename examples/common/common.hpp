@@ -189,6 +189,11 @@ static void log_printf(sd_log_level_t level, const char* file, int line, const c
     va_end(args);
 }
 
+#ifdef SD_EXAMPLES_GLOVE_GUI
+#define GLOVE_ENABLE_JSON
+#include "glove.h"
+#endif
+
 #define LOG_DEBUG(format, ...) log_printf(SD_LOG_DEBUG, __FILE__, __LINE__, format, ##__VA_ARGS__)
 #define LOG_INFO(format, ...) log_printf(SD_LOG_INFO, __FILE__, __LINE__, format, ##__VA_ARGS__)
 #ifndef SD_EXAMPLES_GLOVE_GUI

@@ -153,7 +153,7 @@ endif()
 
 if(SD_EXAMPLES_GLOVE_GUI)
     target_link_libraries(${SD_LIB} PRIVATE Qt${QT_VERSION}::Widgets)
-    target_compile_definitions(${SD_LIB} PUBLIC -D SD_EXAMPLES_GLOVE_GUI)
+    target_compile_definitions(${SD_LIB} PRIVATE -D SD_EXAMPLES_GLOVE_GUI)
     qt_disable_unicode_defines(stable-diffusion)
 endif()
 
