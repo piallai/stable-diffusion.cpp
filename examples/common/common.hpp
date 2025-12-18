@@ -447,15 +447,18 @@ static bool parse_options(int argc, const char** argv, const std::vector<ArgOpti
         }
     }
 
+//#define CHECK_ARGS
 #if defined(SD_EXAMPLES_GLOVE_GUI) && defined(CHECK_ARGS)
-    // Check that every option exists in CLI args
-    bool found_options = checkOptionsInCLI(argc, argv, options.string_options);
-    found_options &= checkOptionsInCLI(argc, argv, options.int_options);
-    found_options &= checkOptionsInCLI(argc, argv, options.float_options);
-    found_options &= checkOptionsInCLI(argc, argv, options.bool_options);
-    found_options &= checkOptionsInCLI(argc, argv, options.manual_options);
-    if (!found_options) {
-        __debugbreak();
+    // Check that every option exists in CLI args. All options must be filled in the GUI for this part to be usefull
+    for (auto& options : options_list) {
+        bool found_options = checkOptionsInCLI(argc, argv, options.string_options);
+        found_options &= checkOptionsInCLI(argc, argv, options.int_options);
+        found_options &= checkOptionsInCLI(argc, argv, options.float_options);
+        found_options &= checkOptionsInCLI(argc, argv, options.bool_options);
+        found_options &= checkOptionsInCLI(argc, argv, options.manual_options);
+        if (!found_options) {
+            //__debugbreak();
+        }
     }
 #endif
 

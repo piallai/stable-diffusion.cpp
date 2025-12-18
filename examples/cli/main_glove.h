@@ -7,8 +7,9 @@
 glvm_SlvEnum(ProcessingMode, img_gen, vid_gen, convert, upscale);
 glvm_SlvEnum_named(WeightType, weight_file_type, "", f32, "f32", f16, "f16", q4_0, "q4_0", q4_1, "q4_1", q5_0, "q5_0", q5_1, "q5_1", q8_0, "q8_0", q2_k, "q2_k", q3_k, "q3_k", q4_k, "q4_k");
 glvm_SlvEnum_named(SamplingMethod, euler, "euler", euler_a, "euler_a", heun, "heun", dpm2, "dpm2", dpmpp2s_a, "dpm++2s_a", dpmpp2m, "dpm++2m", dpmpp2mv2, "dpm++2mv2", ipndm, "ipndm", ipndm_v, "ipndm_v", lcm, "lcm", ddim_trailing, "ddim_trailing", tcd, "tcd");
-glvm_SlvEnum(Rng, std_default, cuda);
+glvm_SlvEnum(Rng, std_default, cuda, cpu);
 glvm_SlvEnum(Prediction, eps, v, edm_v, sd3_flow, flux_flow);
+glvm_SlvEnum_named(LoraApplyMode, Auto, "auto", immediately, "immediately", at_runtime, "at_runtime");
 glvm_SlvEnum(Scheduler, discrete, karras, exponential, ays, gits, smoothstep, sgm_uniform, simple);
 glvm_SlvEnum(Preview, none, proj, tae, vae);
 
@@ -24,7 +25,8 @@ glvm_parametrization(GlvSDParamsImageVideoInput, "Image/video input params",
                         mask_img, SlvFile, "--mask", "mask for inpainting", SlvFile(SlvFile::IO::Read),
                         control_image, SlvFile, "--control-image", "path to control image, control net", SlvFile(SlvFile::IO::Read),
                         control_video, SlvDirectory, "--control-video", "path to control video frames, It must be a directory path. The video frames inside should be stored as images in\nlexicographical (character) order. For example, if the control video path is\n`frames`, the directory contain images such as 00.png, 01.png, ... etc.", SlvDirectory(),
-                        ref_image, SlvFile, "--ref-image", "reference image for Flux Kontext models (can be used multiple times)", SlvFile(SlvFile::IO::Read))
+                        ref_image, SlvFile, "--ref-image", "reference image for Flux Kontext models (can be used multiple times)", SlvFile(SlvFile::IO::Read),
+                        disable_auto_resize_ref_image, bool, "--disable-auto-resize-ref-image", "disable auto resize of ref images", false)
 
 glvm_parametrization(GlvSDParamsVideo, "Video params",
                         video_frames, int, "--video-frames", "video frames (default: 1)", 1,
@@ -47,21 +49,25 @@ glvm_parametrization(GlvSDParamsPreview, "Preview params",
     preview, Preview, "--preview", "preview method. must be one of the following [none, proj, tae, vae].] (default is none)", Preview::none,
     preview_path, SlvFile, "--preview-path", "path to write preview image to (default: ./preview.png)", SlvFile("./preview.png", SlvFileExtensions({".png", ".jpg", ".jpeg", ".jpe"}), SlvFile::IO::Write),
     preview_interval, unsigned int, "--preview-interval", "interval in denoising steps between consecutive updates of the image preview file (default is 1, meaning updating at every step)", 1,
-    preview_noisy, bool, "--preview-noisy", "enables previewing noisy inputs of the models rather than the denoised outputs", true
+    preview_noisy, bool, "--preview-noisy", "enables previewing noisy inputs of the models rather than the denoised outputs", true,
+    taesd_preview_only, bool, "--taesd-preview-only", "prevents usage of taesd for decoding the final image. (for use with --preview tae)", true
 )
 
 glvm_parametrization(GlvSDParamsUpscale, "Upscale params",
     upscale_model, SlvFile, "--upscale-model", "path to esrgan model. Upscale images after generate, just RealESRGAN_x4plus_anime_6B supported by now", SlvFile(SlvFile::IO::Read),
-    upscale_repeats, unsigned int, "--upscale-repeats", "Run the ESRGAN upscaler this many times (default 1)", 1
+    upscale_repeats, unsigned int, "--upscale-repeats", "Run the ESRGAN upscaler this many times (default 1)", 1,
+    upscale_tile_size, unsigned int, "--upscale-tile-size", "tile size for ESRGAN upscaling (default: 128)", 128
 )
 
 glvm_parametrization(GlvSDParamsAdvanced, "Advanced params",
                         preview_params, GlvSDParamsPreview, "Preview", "", GlvSDParamsPreview(),
-                        rng, Rng, "--rng", "RNG (default: cuda)", Rng::cuda,
+                        rng, Rng, "--rng", "RNG, one of [std_default, cuda, cpu], default: cuda(sd-webui), cpu(comfyui)", Rng::std_default,
+                        sampler_rng, Rng, "--sampler-rng", "sampler RNG, one of [std_default, cuda, cpu]. If not specified, use --rng", Rng::std_default,
                         threads, int, "--threads@-t", "number of threads to use during computation (default: -1) \nIf threads <= 0, then threads will be set to the number of CPU physical cores", -1,
                         type, WeightType, "--type", "weight type (examples: f32, f16, q4_0, q4_1, q5_0, q5_1, q8_0, q2_k, q3_k, q4_k) \nIf not specified, the default is the type of the weight file", WeightType::weight_file_type,
                         tensor_type_rules, std::string, "--tensor-type-rules", "weight type per tensor pattern (example: \"^vae\\.=f16,model\\.=q8_0\")", "",
                         prediction, Prediction, "--prediction", "prediction type override, one of [eps, v, edm_v, sd3_flow, flux_flow, flux2_flow]", Prediction::eps,
+                        lora_apply_mode, LoraApplyMode, "--lora-apply-mode", "the way to apply LoRA, one of [auto, immediately, at_runtime], default is auto. In auto mode, if the model weights\ncontain any quantized parameters, the at_runtime mode will be used; otherwise,\nimmediately will be used.The immediately mode may have precision and\ncompatibility issues with quantized parameters, but it usually offers faster inference\nspeed and, in some cases, lower memory usage. The at_runtime mode, on the\nother hand, is exactly the opposite.", LoraApplyMode::Auto,
                         clip_skip, int, "--clip-skip", "ignore last layers of CLIP network; 1 ignores none, 2 ignores one layer (default: -1) \n<= 0 represents unspecified, will be 1 for SD1.x, 2 for SD2.x", -1,
                         moe_boundary, float, "--moe-boundary", "timestep boundary for Wan2.2 MoE model. (default: 0.875). Only enabled if `--high-noise-steps` is set to -1", 0.875f,
                         flow_shift, float, "--flow-shift", "shift value for Flow models like SD3.x or WAN (default: auto)", INFINITY,
@@ -72,11 +78,11 @@ glvm_parametrization(GlvSDParamsAdvanced, "Advanced params",
                         diffusion_fa, bool, "--diffusion-fa", "use flash attention in the diffusion model (for low vram)\nMight lower quality, since it implies converting k and v to f16.\nThis might crash if it is not supported by the backend.", false,
                         diffusion_conv_direct, bool, "--diffusion-conv-direct", "use ggml_conv2d_direct in the diffusion model", false,
                         vae_conv_direct, bool, "--vae-conv-direct", "use ggml_conv2d_direct in the vae model", false,
-                        easycache, bool, "--easycache", "enable EasyCache for DiT models with optional \"threshold,start_percent,end_percent\" (default: 0.2,0.15,0.95)\nCan not set values for now. Parsing of values would be simpler in a vector format such as: [0.2,0.15,0.95]", false,             
+                        sigmas, std::vector<float>, "--sigmas", "custom sigma values for the sampler, comma-separated (e.g., \"14.61,7.8,3.5,0.0\").\nCan not set values for now. Parsing of values would be more convenient in a vector format such as: [14.61,7.8,3.5,0.0]. Alike skip layers.", {},             
+                        easycache, bool, "--easycache", "enable EasyCache for DiT models with optional \"threshold,start_percent,end_percent\" (default: 0.2,0.15,0.95)\nCan not set values for now. Parsing of values would be more convenient in a vector format such as: [0.2,0.15,0.95]. Alike skip layers.", false,             
                         canny, bool, "--canny", "apply canny preprocessor (edge detection)", false,
                         color, bool, "--color", "colors the logging tags according to level", false,
                         increase_ref_index, bool, "--increase-ref-index", "automatically increase the indices of references images based on the order they are listed (starting with 1).", false,
-                        disable_auto_resize_ref_image, bool, "--disable-auto-resize-ref-image", "disable auto resize of ref images", false,
                         verbose, bool, "--verbose@-v", "print extra info", false);
 
 glvm_parametrization(GlvSDModelAddons, "SD model addons",
@@ -91,7 +97,7 @@ glvm_parametrization(GlvSDModelAddons, "SD model addons",
     diffusion_model, SlvFile, "--diffusion-model", "path to the standalone diffusion model", SlvFile(SlvFileExtensions({".gguf", ".safetensors", ".sft"}), SlvFile::IO::Read),
     high_noise_diffusion_model, SlvFile, "--high-noise-diffusion-model", "path to the standalone high noise diffusion model", SlvFile(SlvFileExtensions({".gguf", ".safetensors", ".sft"}), SlvFile::IO::Read),
     vae, SlvFile, "--vae", "path to vae", SlvFile("", SlvFileExtensions({".safetensors", ".sft"}), SlvFile::IO::Read),
-    taesd, SlvFile, "--taesd", "path to taesd. Using Tiny AutoEncoder for fast decoding (low quality)", SlvFile(SlvFile::IO::Read),
+    taesd, SlvFile, "--taesd@--tae", "path to taesd. Using Tiny AutoEncoder for fast decoding (low quality)", SlvFile(SlvFile::IO::Read),
     control_net, SlvFile, "--control-net", "path to control net model", SlvFile(SlvFile::IO::Read),
     embd_dir, SlvDirectory, "--embd-dir", "path to embeddings", SlvDirectory(),
     lora_model_dir, SlvDirectory, "--lora-model-dir", "lora model directory", SlvDirectory())
