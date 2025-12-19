@@ -350,18 +350,9 @@ void step_callback(int step, int frame_count, sd_image_t* image, bool is_noisy, 
 #endif
 struct RecurrentStruct {
     sd_ctx_t* sd_ctx = NULL;
-    GlvSDParams params;
-    bool model_updated(const GlvSDParams& _params) {
-        bool l_model_upddated = _params.get_model() != params.get_model();
-        l_model_upddated |= _params.get_model_addons() != params.get_model_addons();
-        l_model_upddated |= _params.get_photomaker_params() != params.get_photomaker_params();
-        l_model_upddated |= _params.get_advanced_params().get_Vae_tiling_params() != params.get_advanced_params().get_Vae_tiling_params();
-        l_model_upddated |= _params.get_advanced_params().get_threads() != params.get_advanced_params().get_threads();
-        l_model_upddated |= _params.get_advanced_params().get_type() != params.get_advanced_params().get_type();
-        l_model_upddated |= _params.get_advanced_params().get_rng() != params.get_advanced_params().get_rng();
-        l_model_upddated |= _params.get_advanced_params().get_On_CPU_params() != params.get_advanced_params().get_On_CPU_params();
-        l_model_upddated |= _params.get_advanced_params().get_diffusion_fa() != params.get_advanced_params().get_diffusion_fa();
-        return l_model_upddated;
+    GlvSdParams params;
+    bool model_updated(const GlvSdParams& _params) {
+        return _params.get_context_options() != params.get_context_options();
     }
     unsigned int count = 0;
 #ifdef SD_EXAMPLES_IMG2IMG_REPEAT
@@ -402,7 +393,7 @@ int main(int argc, char* argv[]) {
 #define GLOVE_APP_RECURRENT_TYPE RecurrentStruct
 
     RecurrentStruct glove_recurrent_var;
-    GLOVE_APP_PARAM(GlvSDParams);
+    GLOVE_APP_PARAM(GlvSdParams);
 
     if (argc > 1 && std::string(argv[1]) == "--version") {
         std::cout << version_string() << "\n";
@@ -410,7 +401,7 @@ int main(int argc, char* argv[]) {
     }
 
 #ifdef SD_EXAMPLES_IMG2IMG_REPEAT
-    if (glove_parametrization.get_image_video_input_params().get_init_img().is_equivalent(glove_parametrization.get_output())) {
+    if (glove_parametrization.get_generation_options().get_image_video_input_params().get_init_img().is_equivalent(glove_parametrization.get_CLI_options().get_output())) {
         if (!glove_recurrent_var.l_img2img_sequence) {
             glove_recurrent_var.count = 0;
         }
