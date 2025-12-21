@@ -10,7 +10,7 @@ glvm_SlvEnum_named(SamplingMethod, euler, "euler", euler_a, "euler_a", heun, "he
 glvm_SlvEnum(Rng, std_default, cuda, cpu);
 glvm_SlvEnum(Prediction, eps, v, edm_v, sd3_flow, flux_flow);
 glvm_SlvEnum_named(LoraApplyMode, Auto, "auto", immediately, "immediately", at_runtime, "at_runtime");
-glvm_SlvEnum(Scheduler, discrete, karras, exponential, ays, gits, smoothstep, sgm_uniform, simple);
+glvm_SlvEnum(Scheduler, discrete, karras, exponential, ays, gits, smoothstep, sgm_uniform, simple, kl_optimal, lcm);
 glvm_SlvEnum(Preview, none, proj, tae, vae);
 
 glvm_parametrization(GlvSdParamsPhotomaker, "Photomaker params",
@@ -139,6 +139,7 @@ glvm_parametrization(GlvSdParamsHighNoise, "SD params (high noise)",
 
 glvm_parametrization(GlvSdCLIOptionsAdvanced, "CLI options advanced",
     canny, bool, "--canny", "apply canny preprocessor (edge detection)", false,
+    convert_name, bool, "--convert-name", "convert tensor name (for convert mode)", false,
     color, bool, "--color", "colors the logging tags according to level", false,
     verbose, bool, "--verbose@-v", "print extra info", false
 )
@@ -181,7 +182,7 @@ glvm_parametrization(GlvSdGenerationOptionsAdvanced, "Generation options advance
     easycache, bool, "--easycache", "enable EasyCache for DiT models with optional \"threshold,start_percent,end_percent\" (default: 0.2,0.15,0.95)\nCan not set values for now. Parsing of values would be more convenient in a vector format such as: [0.2,0.15,0.95]. Alike skip layers.", false,
     increase_ref_index, bool, "--increase-ref-index", "automatically increase the indices of references images based on the order they are listed (starting with 1).", false,
     sampling_method, SamplingMethod, "--sampling-method", "{euler, euler_a, heun, dpm2, dpm++2s_a, dpm++2m, dpm++2mv2, ipndm, ipndm_v, lcm, ddim_trailing, tcd} \nsampling method (default: 'euler_a')", SamplingMethod::euler_a,
-    scheduler, Scheduler, "--scheduler", "denoiser sigma scheduler, one of [discrete, karras, exponential, ays, gits, smoothstep, sgm_uniform, simple], default: discrete", Scheduler::discrete,
+    scheduler, Scheduler, "--scheduler", "denoiser sigma scheduler, one of [discrete, karras, exponential, ays, gits, smoothstep, sgm_uniform, simple, kl_optimal, lcm],\ndefault: discrete", Scheduler::discrete,
     high_noise_params, GlvSdParamsHighNoise, "High noise", "", GlvSdParamsHighNoise()
 )
 
