@@ -346,7 +346,7 @@ void step_callback(int step, int frame_count, sd_image_t* image, bool is_noisy, 
 
 #ifdef SD_EXAMPLES_GLOVE_GUI
 #ifdef SD_EXAMPLES_GLOVE_GUI_DESKTOP
-//#pragma GLOVE_APP_MSVC_NO_CONSOLE
+#pragma GLOVE_APP_MSVC_NO_CONSOLE
 #endif
 struct RecurrentStruct {
     sd_ctx_t* sd_ctx = NULL;

@@ -62,16 +62,14 @@ glvm_parametrization(GlvSdParamsUpscale, "Upscale params",
     upscale_tile_size, unsigned int, "--upscale-tile-size", "tile size for ESRGAN upscaling (default: 128)", 128
 )
 
-glvm_parametrization(GlvSdModels, "SD models",
-    model, SlvFile, "--model@-m", "path to full model", SlvFile("./", SlvFileExtensions({".safetensors", ".ckpt"}), SlvFile::IO::Read),
+glvm_parametrization(GlvSdModels, "Models",
+    model, SlvFile, "--model@-m", "path to full model", SlvFile("", SlvFileExtensions({".safetensors", ".ckpt"}), SlvFile::IO::Read),
     clip_l, SlvFile, "--clip_l", "path to the clip-l text encoder", SlvFile(SlvFile::IO::Read),
     clip_g, SlvFile, "--clip_g", "path to the clip-g text encoder", SlvFile(SlvFile::IO::Read),
     clip_vision, SlvFile, "--clip_vision", "path to the clip-vision encoder", SlvFile(SlvFile::IO::Read),
     t5xxl, SlvFile, "--t5xxl", "path to the t5xxl text encoder", SlvFile(SlvFile::IO::Read),
-    llm, SlvFile, "--llm", "path to the llm text encoder. For example: (qwenvl2.5 for qwen-image, mistral-small3.2 for flux2, ...)", SlvFile(SlvFile::IO::Read),
-    llm_vision, SlvFile, "--llm_vision", "path to the llm vit", SlvFile(SlvFile::IO::Read),
-    qwen2vl, SlvFile, "--qwen2vl", "alias of --llm. Deprecated.", SlvFile(SlvFile::IO::Read),
-    qwen2vl_vision, SlvFile, "--qwen2vl_vision", "alias of --llm_vision. Deprecated.", SlvFile(SlvFile::IO::Read),
+    llm, SlvFile, "--llm@--qwen2vl", "path to the llm text encoder. For example: (qwenvl2.5 for qwen-image, mistral-small3.2 for flux2, ...)", SlvFile(SlvFile::IO::Read),
+    llm_vision, SlvFile, "--llm_vision@--qwen2vl_vision", "path to the llm vit", SlvFile(SlvFile::IO::Read),
     diffusion_model, SlvFile, "--diffusion-model", "path to the standalone diffusion model", SlvFile(SlvFileExtensions({".gguf", ".safetensors", ".sft"}), SlvFile::IO::Read),
     high_noise_diffusion_model, SlvFile, "--high-noise-diffusion-model", "path to the standalone high noise diffusion model", SlvFile(SlvFileExtensions({".gguf", ".safetensors", ".sft"}), SlvFile::IO::Read),
     vae, SlvFile, "--vae", "path to vae", SlvFile("", SlvFileExtensions({".safetensors", ".sft"}), SlvFile::IO::Read),
@@ -117,7 +115,7 @@ glvm_parametrization(GlvSdScaleStrength, "Scale/Strength params",
     Scale, GlvSdParamsScale, "Scale", "", GlvSdParamsScale(),
     Scale_high_noise, GlvSdParamsScaleHighNoise, "Scale (high noise)", "", GlvSdParamsScaleHighNoise(),
     strength, float, "--strength", "strength for noising/unnoising (default: 0.75)", 0.75f,
-    control_strength, SlvProportion, "--control-strength", "strength to apply Control Net (default: 0.9) \n1.0 corresponds to full destruction of information in init", 0.9f
+    control_strength, SlvProportion, "--control-strength", "strength to apply Control Net (default: 0.9) \n1.0 corresponds to full destruction of information in init", 0.9
 )
 
 glvm_parametrization(GlvSdParamsChroma, "Chroma params",
@@ -211,6 +209,10 @@ glvm_parametrization(GlvSdParams, "SD params",
 )
 
 GLOVE_APP_CLI_PARAMETRIZATION_OUTPUT_DIRECTORY(GlvSdParams, "--output")
+
+glvm_parametrization_open(GlvSdCLIOptions)
+glvm_parametrization_open(GlvSdContextOptions)
+glvm_parametrization_open(GlvSdGenerationOptions)
 
 
 #ifdef SD_EXAMPLES_IMG2IMG_REPEAT
