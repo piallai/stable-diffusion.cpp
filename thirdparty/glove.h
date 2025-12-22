@@ -21,7 +21,7 @@
 
 #define GLOVE_VERSION_MAJOR 0
 #define GLOVE_VERSION_MINOR 7
-#define GLOVE_VERSION_PATCH 11
+#define GLOVE_VERSION_PATCH 12
 
 #ifndef GLOVE_DISABLE_QT
 #define OPTION_ENABLE_SLV_QT_PROGRESS 1
@@ -19164,6 +19164,8 @@ glvm_parametrization(GLOVE_APP_default_parametrization, "default");
 #define GLOVE_APP_RECURRENT_TYPE int
 /*! Used only if GLOVE_APP_RECURRENT_MODE is left to false.*/
 static GLOVE_APP_RECURRENT_TYPE glove_recurrent_var = 0;
+/*! To set a title to the application. Must be defined in main, before calling the GLOVE_APP macro.*/
+#define GLOVE_APP_TITLE(title) GlvApp::set_title(title);
 
 #define glvm_pv_GLOVE_APP(Tparametrization, _l_auto_glove) \
 return GlvApp::main<Tparametrization>(argc, argv, _l_auto_glove, GLOVE_APP_THREAD_MODE, GLOVE_APP_RECURRENT_MODE, glove_recurrent_var);\
@@ -19210,6 +19212,8 @@ private :
 	};
 
 public:
+
+	glvm_staticVariableGetSet(std::string, title, "");
 
 	template <class Tparametrization, class Trecurrent>
 	static int main(int _argc, char* _argv[], bool _l_auto_glove, bool _l_threaded, bool _l_recurrent, Trecurrent& _recurrent);
@@ -19400,6 +19404,7 @@ int GlvApp::main(int _argc, char* _argv[], bool _l_auto_glove, bool _l_threaded,
 	if (SlvCLI::has_glove(_argc, _argv) || _l_auto_glove) {
 
 		QApplication q_app(_argc, _argv);
+		q_app.setApplicationDisplayName(QString::fromStdString(title()));
 		if (_l_recurrent) {
 			q_app.setQuitOnLastWindowClosed(false);
 		}

@@ -350,32 +350,6 @@ void step_callback(int step, int frame_count, sd_image_t* image, bool is_noisy, 
     }
 }
 
-#ifdef SD_EXAMPLES_GLOVE_GUI
-#ifdef SD_EXAMPLES_GLOVE_GUI_DESKTOP
-#pragma GLOVE_APP_MSVC_NO_CONSOLE
-#endif
-struct RecurrentStruct {
-    sd_ctx_t* sd_ctx = NULL;
-    GlvSdParams params;
-    bool model_updated(const GlvSdParams& _params) {
-        return _params.get_context_options() != params.get_context_options();
-    }
-    unsigned int count = 0;
-#ifdef SD_EXAMPLES_IMG2IMG_REPEAT
-    bool l_img2img_sequence = false;
-    unsigned int Nframes = 100000;
-    // Auto repeat if returns true
-    operator bool() const {
-        return l_img2img_sequence && count > 0 && count <= Nframes;
-    }
-#else
-    operator bool() const {
-        return false;
-    }
-#endif
-};
-#endif
-
 int main(int argc, char* argv[]) {
 
 #ifdef SD_EXAMPLES_GLOVE_GUI
@@ -392,13 +366,8 @@ int main(int argc, char* argv[]) {
     GlvApp::get_progression("Result");
     GlvApp::get_progression("Decoding latent video");
 
-#ifdef SD_EXAMPLES_GLOVE_GUI_DESKTOP
-#define GLOVE_APP_AUTO true
-#endif
-#define GLOVE_APP_RECURRENT_MODE true
-#define GLOVE_APP_RECURRENT_TYPE RecurrentStruct
-
     RecurrentStruct glove_recurrent_var;
+    GLOVE_APP_TITLE("stable-diffusion.cpp");
     GLOVE_APP_PARAM(GlvSdParams);
 
     if (argc > 1 && std::string(argv[1]) == "--version") {

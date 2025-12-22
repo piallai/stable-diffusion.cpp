@@ -254,3 +254,35 @@ sd_image_t* crop(const sd_image_t& _image, int _left, int _right, int _up, int _
     return image;
 }
 #endif
+
+#ifdef SD_EXAMPLES_GLOVE_GUI
+#ifdef SD_EXAMPLES_GLOVE_GUI_DESKTOP
+#pragma GLOVE_APP_MSVC_NO_CONSOLE
+#endif
+struct RecurrentStruct {
+    sd_ctx_t* sd_ctx = NULL;
+    GlvSdParams params;
+    bool model_updated(const GlvSdParams& _params) {
+        return _params.get_context_options() != params.get_context_options();
+    }
+    unsigned int count = 0;
+#ifdef SD_EXAMPLES_IMG2IMG_REPEAT
+    bool l_img2img_sequence = false;
+    unsigned int Nframes    = 100000;
+    // Auto repeat if returns true
+    operator bool() const {
+        return l_img2img_sequence && count > 0 && count <= Nframes;
+    }
+#else
+    operator bool() const {
+        return false;
+    }
+#endif
+};
+#endif
+
+#ifdef SD_EXAMPLES_GLOVE_GUI_DESKTOP
+#define GLOVE_APP_AUTO true
+#endif
+#define GLOVE_APP_RECURRENT_MODE true
+#define GLOVE_APP_RECURRENT_TYPE RecurrentStruct
