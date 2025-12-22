@@ -1,6 +1,6 @@
 # stable-diffusion.cpp : GUI of command line interface
 
-This repository is a fork of [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp). It adds a GUI interface to the executable generating examples. The GUI act as a local server. Examples can be generated continuously without reloading the model.
+This repository is a fork of [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp). It adds a GUI interface to the executable generating examples. The GUI acts as a local server. Examples can be generated continuously without reloading the model(s).
 
 <p align="center">
   <img src="./assets/sd-example.png" width="380x">
