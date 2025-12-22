@@ -20,9 +20,9 @@ This repository is a fork of [stable-diffusion.cpp](https://github.com/leejet/st
   
   - **-bin-win-cuda12-x64** : Compatible with Nvidia graphic card GeForce GTX 950 and after (ie: RTX series are compatible).
 
-- The model is reloaded only if its parameters are changed
+- The models are reloaded only if their parameters are changed. If any of the *Context options* parameters is changed, then the models are reloaded.
   
-  - Possibility to generate images with different prompts on the fly
+  - Possibility to generate images with different prompts/size on the fly
 
 - Parameters saving as *json*, upon acceptance (*Ok* button):
   
