@@ -21,7 +21,7 @@
 
 #define GLOVE_VERSION_MAJOR 0
 #define GLOVE_VERSION_MINOR 7
-#define GLOVE_VERSION_PATCH 10
+#define GLOVE_VERSION_PATCH 11
 
 #ifndef GLOVE_DISABLE_QT
 #define OPTION_ENABLE_SLV_QT_PROGRESS 1
@@ -865,7 +865,7 @@ public:
     /*! Return true if the file exists.*/
     bool exists() const;
 
-    /*! Equal if file name, directory, description and allowed extensions are identical.
+    /*! Equal if file name, directory, and description are identical. Allowed extensions are not considered for comparison.
     * Different of is_equivalent method.*/
     bool operator==(const SlvFile& _file) const;
     bool operator!=(const SlvFile& _file) const;
@@ -7408,11 +7408,14 @@ namespace slv {
 template <class T>
 bool slv::parse(const std::string& _string, T& _value) {
 
-	std::istringstream iss(_string);
+	if (!_string.empty()) {
+		std::istringstream iss(_string);
+		iss >> _value;
+		return true;
+	} else {
+		return false;
+	}
 
-	iss >> _value;
-
-	return true;
 }
 
 inline bool slv::parse(const std::string& _string, std::string& _value) {
@@ -7429,15 +7432,19 @@ namespace slv {
     namespace {//private
         template <class T>
         bool parseFP(const std::string& _string, T& _value) {
-            if (_string == "inf") {
-                _value = INFINITY;
-            } else if (_string == "-inf") {
-                _value = -INFINITY;
+            if (!_string.empty()) {
+                if (_string == "inf") {
+                    _value = INFINITY;
+                } else if (_string == "-inf") {
+                    _value = -INFINITY;
+                } else {
+                    std::istringstream iss(_string);
+                    iss >> _value;
+                }
+                return true;
             } else {
-                std::istringstream iss(_string);
-                iss >> _value;
+                return false;
             }
-            return true;
         }
     }
 }
@@ -18313,7 +18320,6 @@ SlvStatus GlvParametrizationWidget<Tparametrization>::parse_arguments(const std:
         if (status) {
             GlvParametersWidget_base::CLI_parameters = CLI_parameters;
             set_parametrization(parametrization);
-            //GlvParametersWidget_base::CLI_arguments_line = SlvCLI::get_CLI(parametrization, _l_explicit_bool_arg);
         }
     }
     return status;
@@ -18690,6 +18696,53 @@ SlvFileExtensions GlvParametrizationSaveLoad<Tparametrization>::allowed_extensio
 
 #endif
 
+/*! Class to measure execution time.
+* At instantiation/reset, a reference time is measured and added to stack of checked times.
+* Each time get_elapsed_time, get_elapsed_time_last, or check_display, method is called, a new checked time is added. Check sample012 for example.*/
+class SlvTimer : public SlvName {
+
+private:
+
+	std::vector<clock_t> check_times;
+
+public:
+
+	/*! Parsed time as: hours, minutes, seconds, milliseconds.*/
+	typedef std::array<int, 4> Time;
+
+	SlvTimer(std::string _name = "");
+	~SlvTimer();
+
+	/*! Reset timer by clearing all checked times and taking current time as new reference.*/
+	void reset();
+
+	/*! Parse elapsed time since instance reference into a string.*/
+	std::string get_string() const;
+
+	/*! Get elapsed time from reference into hours, minutes, seconds, milliseconds.
+	* Each time this method is called, a check time is added.*/
+	Time get_elapsed_time();
+	/*! Get elapsed time from last check into hours, minutes, seconds, milliseconds.
+	* Each time this method is called, a check time is added.*/
+	Time get_elapsed_time_last();
+
+	/*! Measure elapsed time and display it via std::cout. \p _message is an optional display message.
+	* Each time this method is called, a check time is added.*/
+	void check_display(std::string _message = "");
+
+	/*! Convert time to total milliseconds.*/
+	static int to_milliseconds(const Time& _time);
+	static Time from_milliseconds(const int& _milliseconds);
+
+private:
+
+	/*! Display time \p _time.*/
+	void time_display(clock_t _time) const;
+	/*! Parse \p _time into hours, minutes, seconds, milliseconds.*/
+	Time get_time(clock_t _time) const;
+
+};
+
 /*! Class managing the progress signals of a loop.*/
 class SlvProgressionQt :
 #if OPTION_ENABLE_SLV_QT_PROGRESS==1
@@ -18737,6 +18790,8 @@ private:
 	* In this case, hiding must be managed using finish().*/
 	bool l_recurrent;
 
+	SlvTimer timer;
+
 public:
 
 	SlvProgressionQt(std::string _name = "", bool _l_recurrent = false);
@@ -18762,6 +18817,11 @@ public:
 	* If true, default hiding policy on ending will avoid glitches.
 	* In this case, hiding must be managed using finish().*/
 	bool is_recurrent() const;
+
+	/*! Get the number of seconds elapsed since the progress has started.*/
+	SlvTimer::Time get_time_elapsed();
+	/*! Get the number of seconds remaining before the progress is complete.*/
+	SlvTimer::Time get_time_remaining();
 
 	/*! Whether the progression as reached its maximum or not: *iterator_ptr >= Niterations-1.
 	* Return true if the progression was not started yet.*/
@@ -18819,7 +18879,7 @@ public :
 
 	/*! Cast to iterator.*/
 	operator std::size_t() const;
-	/*! Initialize iterator and start progress.*/
+	/*! Initialize iterator and start progress. Usefull when using SlvProgressionQt in a for(). Caution: Niterations can not be known before << in this case.*/
 	SlvProgressionQt& operator=(const std::size_t _iterator);
 
 	/*! Control of maximum. Compare iterator < _Niterations and updates Niterations. Comparison in for-loop used to set Niterations.
@@ -18849,6 +18909,9 @@ public :
 
 private:
 
+	/*! Return absolute value. Depends if the iterator is a pointer or not.*/
+	std::size_t get_value_abs() const;
+
 	/*! Enforce finish by setting the iterator_ptr to finish value Niterations.
 	* The loop will end if the iterator is properly related to the iterator_ptr pointer.*/
 	void iterator_finish();
@@ -18862,9 +18925,9 @@ private:
 signals:
 
 	/*! Emitted when progress starts.*/
-	void started();
-	/*! Emit progress value in a range [0, 100] when progress is updated.*/
-	void updated(int _value);
+	void started(int _maximum_abs);
+	/*! Emit progress value in a range [0, 100] when progress is updated. Also emits absolute value and its maximum. Also emits estimated remaining time in seconds to reach maximum.*/
+	void updated(int _value, int _value_abs, int _maximum_abs, SlvTimer::Time _time_elapsed, SlvTimer::Time _time_remaining);
 	/*! If an iterator or iterator_ptr is provided, is automatically emitted at end of loop.*/
 	void ended();
 	/*! Emitted when progress is completely over. If _l_remove is true, the progression will be removed of the progression manager (if managed by one).*/
@@ -19417,6 +19480,66 @@ int GlvApp::main(int _argc, char* _argv[], bool _l_auto_glove, bool _l_threaded,
 	}
 
 }
+
+class QPushButton;
+class SlvProgressionQt;
+class GlvProgressMgr;
+
+/*! Widget managing progress a SlvProgressionQt.*/
+class GlvProgression : public QProgressDialog {
+
+    Q_OBJECT
+
+private:
+
+    /*! Watching the instance belongs to.*/
+    GlvProgressMgr* progress_mgr;
+    SlvProgressionQt* progression;
+    QPushButton* cancel_button;
+
+    /*! Automatically hide the progression once ended.*/
+    const bool l_auto_hide;
+    /*! Show before the progress has started.*/
+    const bool l_show_before_start;
+    /*! Whether progress has started or not.*/
+    bool l_has_started;
+    /*! If progress is not cancelable, keep cancel request for end.*/
+    bool l_cancel_requested;
+
+public:
+
+    GlvProgression(GlvProgressMgr* _progress_mgr, SlvProgressionQt* _progression = 0, bool _l_auto_hide = false, bool _l_show_before_start = false, QWidget* _parent = 0);
+    ~GlvProgression();
+
+    /*! Associate progression to this progress instance.*/
+    void set_progression(SlvProgressionQt* _progression);
+    /*! Get progression.*/
+    const SlvProgressionQt* get_progression() const;
+
+    /*! Whether the progression has reached its maximum or not.*/
+    bool is_over() const;
+
+    /*! Whether the progression is showable based on start status or shoability before start.
+    * Workaround to manage QProgressDialog::minimumDuration().*/
+    bool is_showable() const;
+
+public slots:
+
+    void cancel();
+
+private slots:
+
+    /*! Start/reset GlvProgression.
+    * Enable or diable Cancel button depending on the attached progression.*/
+    void start(int _maximum_abs);
+    /*! Update progress.*/
+    void update_progress(int _value, int _value_abs, int _maximum_abs, SlvTimer::Time _time_elapsed, SlvTimer::Time _time_remaining);
+    /*! Auto hide if enabled.*/
+    void end();
+    /*! Remove or hide progression from GlvProgressMgr.*/
+    void final(bool _l_remove);
+
+};
 
 glvm_parametrization(SlvParametersParserConfig, "Parameters parser",
 	arguments, std::string, "Arguments", "Arguments to parse", "",
@@ -21045,6 +21168,19 @@ struct GlvWidgetMakerConnect<Tdata> {
 
 #undef Tdata
 
+/*! Parametrizations are closed by default.*/
+template <class Tparametrization>
+struct GlvParametrizationWidgetDefaultOpen {
+	static constexpr bool open = false;
+};
+
+/*! Make the parametrization open by default.*/
+#define glvm_parametrization_open(Tparametrization) \
+template <>\
+struct GlvParametrizationWidgetDefaultOpen<Tparametrization> {\
+	static constexpr bool open = true;\
+};
+
 /*! GlvWidgetData for type SlvParametrization*/
 template <class Tparametrization>
 class GlvWidgetData<Tparametrization, typename std::enable_if<std::is_base_of<SlvParametrization_base, Tparametrization>::value>::type> : public GlvParametrizationWidget<Tparametrization> {
@@ -21054,6 +21190,15 @@ public:
         QWidget::setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
         this->set_checkable_collapse(true);
         this->set_scrollable(false);
+        if (GlvParametrizationWidgetDefaultOpen<Tparametrization>::open || _value != Tparametrization()) {
+            this->setChecked(true);
+        }
+    }
+    void set_value(const Tparametrization& _value) {
+        GlvParametrizationWidget<Tparametrization>::set_value(_value);
+        if (_value != Tparametrization()) {
+            this->setChecked(true);
+        }
     }
     ~GlvWidgetData() {}
 
@@ -22287,46 +22432,6 @@ typedef SlvWriteTextNamedT<SlvLblName> SlvWriteTextLblNamed;
 /*! Convenience class.*/
 typedef SlvWriteTextNamedT<SlvName> SlvWriteTextNamed;
 
-/*! Class to measure execution time.
-* At instantiation/reset, a reference time is measured and added to stack of checked times.
-* Each time get_elasped_time, get_elasped_time_last, or check_display, method is called, a new checked time is added. Check sample012 for example.*/
-class SlvTimer : public SlvName {
-
-private:
-
-	std::vector<clock_t> check_times;
-
-public:
-
-	SlvTimer(std::string _name = "");
-	~SlvTimer();
-
-	/*! Reset timer by clearing all checked times and taking current time as new reference.*/
-	void reset();
-
-	/*! Parse elapsed time since instance reference into a string.*/
-	std::string get_string() const;
-
-	/*! Get elapsed time from reference into hours, minutes, seconds, milliseconds.
-	* Each time this method is called, a check time is added.*/
-	std::vector<int> get_elasped_time();
-	/*! Get elapsed time from last check into hours, minutes, seconds, milliseconds.
-	* Each time this method is called, a check time is added.*/
-	std::vector<int> get_elasped_time_last();
-
-	/*! Measure elapsed time and display it via std::cout. \p _message is an optional display message.
-	* Each time this method is called, a check time is added.*/
-	void check_display(std::string _message = "");
-
-private:
-
-	/*! Display time \p _time.*/
-	void time_display(clock_t _time) const;
-	/*! Parse \p _time into hours, minutes, seconds, milliseconds.*/
-	std::vector<int> get_time(clock_t _time) const;
-
-};
-
 #ifndef GLOVE_DISABLE_QT
 
 #define Tdata std::nullptr_t
@@ -22621,64 +22726,6 @@ template <>
 bool slv::rw::readB<char>(char* _dat, std::ifstream& _input_file);
 
 #ifndef GLOVE_DISABLE_QT
-
-class QPushButton;
-class SlvProgressionQt;
-class GlvProgressMgr;
-
-/*! Widget managing progress a SlvProgressionQt.*/
-class GlvProgression : public QProgressDialog {
-
-    Q_OBJECT
-
-private:
-
-    /*! Watching the instance belongs to.*/
-    GlvProgressMgr* progress_mgr;
-    SlvProgressionQt* progression;
-    QPushButton* cancel_button;
-
-    /*! Automatically hide the progression once ended.*/
-    const bool l_auto_hide;
-    /*! Show before the progress has started.*/
-    const bool l_show_before_start;
-    /*! Whether progress has started or not.*/
-    bool l_has_started;
-    /*! If progress is not cancelable, keep cancel request for end.*/
-    bool l_cancel_requested;
-
-public:
-
-    GlvProgression(GlvProgressMgr* _progress_mgr, SlvProgressionQt* _progression = 0, bool _l_auto_hide = false, bool _l_show_before_start = false, QWidget* _parent = 0);
-    ~GlvProgression();
-
-    /*! Associate progression to this progress instance.*/
-    void set_progression(SlvProgressionQt* _progression);
-    /*! Get progression.*/
-    const SlvProgressionQt* get_progression() const;
-
-    /*! Whether the progression has reached its maximum or not.*/
-    bool is_over() const;
-
-    /*! Whether the progression is showable based on start status or shoability before start.
-    * Workaround to manage QProgressDialog::minimumDuration().*/
-    bool is_showable() const;
-
-public slots:
-
-    void cancel();
-
-private slots:
-
-    /*! Start/reset GlvProgression.
-    * Enable or diable Cancel button depending on the attached progression..*/
-    void start();
-    /*! Auto hide if enabled.*/
-    void end();
-    /*! Remove or hide progression from GlvProgressMgr.*/
-    void final(bool _l_remove);
-
-};
 
 class QTreeView;
 class QStandardItemModel;
@@ -23105,8 +23152,8 @@ inline std::ostream& operator<<(std::ostream& _os, const SlvOS& _OS) {
 
 }
 
-inline SlvDirectory::SlvDirectory() {
-    l_relative = false;
+inline SlvDirectory::SlvDirectory() :SlvDirectory("") {
+
 }
 
 inline SlvDirectory::SlvDirectory(const std::string _string) {
@@ -23548,8 +23595,7 @@ inline bool SlvFile::operator==(const SlvFile& _file) const {
 
     return file_name == _file.file_name \
         && directory == _file.directory \
-        && description == _file.description \
-        && allowed_extensions == _file.allowed_extensions;
+        && description == _file.description;
 
 }
 
@@ -27404,6 +27450,132 @@ inline void glv::flag::INFO(std::string warning_message, QWidget* _parent) {
 
 #endif
 
+//#include "slv_string.h"
+
+inline SlvTimer::SlvTimer(std::string _name) :SlvName(_name) {
+
+    reset();
+}
+
+inline SlvTimer::~SlvTimer() {
+
+}
+
+inline void SlvTimer::reset() {
+
+    check_times.clear();
+    check_times.push_back(clock());//start time
+}
+
+inline void SlvTimer::check_display(std::string _message) {
+
+    check_times.push_back(clock());
+
+    std::cout << "(SlvTimer " << name << ", " << _message << ")" << std::endl;
+    std::cout << "last check: ";
+    time_display(check_times.back() - check_times[check_times.size() - 2]);
+    std::cout << " ago " << std::endl;
+    std::cout << "from start: ";
+    time_display(check_times.back() - check_times.front());
+    std::cout << std::endl;
+
+}
+
+inline std::string SlvTimer::get_string() const {
+
+    std::string time;
+    Time time_array = get_time(clock() - check_times[0]);
+    if (time_array[0] > 0) {
+        time = slv::string::to_string(time_array[0]) + " h ";
+    }
+    if (time_array[1] > 0 || time_array[0] > 0) {
+        time += slv::string::to_string(time_array[1]) + " min ";
+    }
+    if (time_array[2] > 0 || time_array[1] > 0 || time_array[0] > 0) {
+        time += slv::string::to_string(time_array[2]) + " s ";
+    }
+    if (time_array[3] > 0 || time_array[2] > 0 || time_array[1] > 0 || time_array[0] > 0) {
+        time += slv::string::to_string(time_array[3]) + " ms ";
+    }
+
+    return time;
+}
+
+inline SlvTimer::Time SlvTimer::get_elapsed_time() {
+
+    check_times.push_back(clock());
+
+    return get_time(check_times.back() - check_times[0]);
+
+}
+
+inline SlvTimer::Time SlvTimer::get_elapsed_time_last() {
+
+    check_times.push_back(clock());
+
+    return get_time(check_times.back() - check_times.end()[-2]);
+
+}
+
+inline void SlvTimer::time_display(clock_t _time) const {
+
+    Time time_array = get_time(_time);
+    std::cout << time_array[0] << " h " << time_array[1] << " min " << time_array[2] << " s " << time_array[3] << " ms";
+
+}
+
+inline SlvTimer::Time SlvTimer::get_time(clock_t _time) const {
+
+    Time time_array;
+
+    double time = double(_time) / CLOCKS_PER_SEC;
+
+    long int time_int = (long int)time;
+    int n_milliseconds = int((time - double(time_int)) * 1000);
+
+    int n_hours, n_minutes, n_seconds;
+
+    n_hours = (time_int - time_int % 3600) / 3600;
+    time_array[0] = n_hours;
+    time_int -= n_hours * 3600;
+    n_minutes = (time_int - time_int % 60) / 60;
+    time_array[1] = n_minutes;
+    time_int -= n_minutes * 60;
+    n_seconds = (time_int - time_int % 1) / 1;
+    time_array[2] = n_seconds;
+
+    time_array[3] = n_milliseconds;
+
+    return time_array;
+}
+
+inline int SlvTimer::to_milliseconds(const Time& _time) {
+
+    return (_time[0] * 3600 + _time[1] * 60 + _time[2]) * 1000 + _time[3];
+
+}
+
+inline SlvTimer::Time SlvTimer::from_milliseconds(const int& _milliseconds) {
+
+    Time time_array;
+
+    int n_hours, n_minutes, n_seconds;
+    int time_int = _milliseconds;
+
+    n_hours = (_milliseconds % 3600000) / 3600000;
+    time_array[0] = n_hours;
+    time_int -= n_hours * 3600000;
+    n_minutes = (time_int - time_int % 60000) / 60000;
+    time_array[1] = n_minutes;
+    time_int -= n_minutes * 60000;
+    n_seconds = (time_int - time_int % 1000) / 1000;
+    time_array[2] = n_seconds;
+    time_int -= n_seconds * 1000;
+    time_array[3] = time_int;
+
+    return time_array;
+}
+
 #define get_iterator_ptr_value \
 iterator_type == IteratorType::Int ? *static_cast<int*>(iterator_ptr) : (\
 iterator_type == IteratorType::UnsignedInt ? *static_cast<unsigned int*>(iterator_ptr) : (\
@@ -27471,6 +27643,20 @@ inline bool SlvProgressionQt::is_recurrent() const {
 
 }
 
+inline SlvTimer::Time SlvProgressionQt::get_time_elapsed() {
+
+	return timer.get_elapsed_time();
+
+}
+
+inline SlvTimer::Time SlvProgressionQt::get_time_remaining() {
+
+	int remaining = SlvTimer::to_milliseconds(timer.get_elapsed_time_last());
+	remaining *= (int)(Niterations - get_value_abs());
+	return SlvTimer::from_milliseconds(remaining);
+
+}
+
 inline bool SlvProgressionQt::is_over() const {
 
 	if (l_started) {
@@ -27521,8 +27707,10 @@ inline void SlvProgressionQt::start() {
 
 	clear_progress();
 	l_started = true;
+
+	timer.reset();
 #if OPTION_ENABLE_SLV_QT_PROGRESS==1
-	emit started();
+	emit started((int)Niterations);
 #endif
 
 }
@@ -27579,10 +27767,23 @@ inline void SlvProgressionQt::start_pv(const unsigned int _Niterations) {
 	l_started = true;
 	Niterations = _Niterations;
 
+	timer.reset();
 #if OPTION_ENABLE_SLV_QT_PROGRESS==1
-	emit started();
+	emit started((int)Niterations);
 #endif
 
+}
+
+inline std::size_t SlvProgressionQt::get_value_abs() const {
+
+	std::size_t value_abs = 0;
+	if (iterator_ptr) {
+		value_abs = get_iterator_ptr_value + 1;
+	} else if (l_iterating) {
+		value_abs = iterator;
+	}
+
+	return value_abs;
 }
 
 inline bool SlvProgressionQt::update() {
@@ -27590,13 +27791,10 @@ inline bool SlvProgressionQt::update() {
 	if (Niterations) {
 #if OPTION_ENABLE_SLV_QT_PROGRESS==1
 		int value = -1;
-		if (iterator_ptr) {
-			value = int(100 * (get_iterator_ptr_value + 1) / Niterations);
-		} else if (l_iterating) {
-			value = int(100 * (iterator) / Niterations);
-		}
+		std::size_t value_abs = get_value_abs();
+		value = int(100 * value_abs / Niterations);
 		if (value >= 0) {
-			emit updated(value);
+			emit updated(value, (int)value_abs, (int)Niterations, get_time_elapsed(), get_time_remaining());
 			if (is_over()) {
 				end();
 			}
@@ -27617,7 +27815,7 @@ inline bool SlvProgressionQt::update(int _value) {
 #if OPTION_ENABLE_SLV_QT_PROGRESS==1
 		int value = 100 * (_value + 1) / Niterations;
 		if (value >= 0) {
-			emit updated(value);
+			emit updated(value, _value, (int)Niterations, get_time_elapsed(), get_time_remaining());
 			if (is_iterator_ptr_over(_value, Niterations)) {
 				end();
 			}
@@ -27704,8 +27902,9 @@ inline SlvProgressionQt& SlvProgressionQt::operator=(const std::size_t _iterator
 	iterator = _iterator;
 	l_iterating = true;
 
+	timer.reset();
 #if OPTION_ENABLE_SLV_QT_PROGRESS==1
-	emit started();
+	emit started((int)Niterations);
 #endif
 	return *this;
 }
@@ -28029,6 +28228,184 @@ inline void GlvApp::show(const SlvStatus& _status, bool _l_wait) {
 		while (!status_mgr()->proceeed()) {}
 
 	}
+
+}
+
+inline GlvProgression::GlvProgression(GlvProgressMgr* _progress_mgr, SlvProgressionQt* _progression, bool _l_auto_hide, bool _l_show_before_start, QWidget* _parent) :QProgressDialog(_parent), l_auto_hide(_l_auto_hide), l_show_before_start(_l_show_before_start) {
+    
+    setValue(0);
+    setMaximum(100);
+
+    l_has_started = false;
+    l_cancel_requested = false;
+
+    progress_mgr = _progress_mgr;
+
+    QProgressDialog::setAutoReset(false);
+    QProgressDialog::setAutoClose(false);
+
+    progression = NULL;
+    set_progression(_progression);
+
+    cancel_button = new QPushButton(tr("Cancel"));
+    QProgressDialog::setCancelButton(cancel_button);
+    cancel_button->setEnabled(false);
+
+    setSizePolicy(QSizePolicy::Policy::MinimumExpanding, QSizePolicy::Policy::MinimumExpanding);
+
+}
+
+inline GlvProgression::~GlvProgression() {
+
+}
+
+inline void GlvProgression::set_progression(SlvProgressionQt* _progression) {
+
+    if (_progression) {
+
+        if (progression) {
+#if OPTION_ENABLE_SLV_QT_PROGRESS==1
+            progression->disconnect();
+#endif
+        }
+
+        QProgressDialog::setLabelText(glv::toQString(_progression->get_name()));
+
+        progression = _progression;
+
+#if OPTION_ENABLE_SLV_QT_PROGRESS==1
+        connect(progression, SIGNAL(started(int)), this, SLOT(start(int)));
+        // thread safe. In case executed slot doesn't have time to go through.
+        connect(progression, SIGNAL(updated(int, int, int, SlvTimer::Time, SlvTimer::Time)), this, SLOT(update_progress(int, int, int, SlvTimer::Time, SlvTimer::Time)), Qt::BlockingQueuedConnection);
+        connect(progression, SIGNAL(ended()), this, SLOT(end()));
+        connect(progression, SIGNAL(finished(bool)), this, SLOT(final(bool)));
+#endif
+
+    }
+
+}
+
+inline const SlvProgressionQt* GlvProgression::get_progression() const {
+
+    return progression;
+}
+
+inline bool GlvProgression::is_showable() const {
+
+    return l_has_started || l_show_before_start;
+
+}
+
+inline bool GlvProgression::is_over() const {
+
+    return progression->is_over();
+}
+
+inline void GlvProgression::start(int _maximum_abs) {
+
+    QProgressDialog::reset();//to reset wasCanceled
+    setValue(0);
+    QString label_abs = QString::number(0) + "/";
+    if (_maximum_abs > 0) {
+        label_abs += QString::number(_maximum_abs);
+    } else {
+        label_abs = "";
+    }
+    setToolTip(label_abs);
+
+    l_has_started = true;
+
+    std::string text = progression->get_name();
+    if (!text.empty() && !progression->get_message().empty()) {
+        text += " : ";
+    }
+    // Update QProgressDialog::text with message.
+    text += progression->get_message();
+
+    QProgressDialog::setLabelText(glv::toQString(text));
+
+    if (progression->has_iterator_ptr() || progression->is_iterating()) {
+        cancel_button->setEnabled(true);
+        setMaximum(100);
+        connect(this, SIGNAL(canceled()), this, SLOT(cancel()), Qt::ConnectionType::UniqueConnection);
+    } else {
+        cancel_button->hide();
+        setMaximum(0);
+        findChild<QProgressBar*>()->setTextVisible(false);
+        disconnect(this, SIGNAL(canceled()), this, SLOT(cancel()));
+    }
+
+    show();
+}
+
+inline void GlvProgression::update_progress(int _value, int _value_abs, int _maximum_abs, SlvTimer::Time _time_elapsed, SlvTimer::Time _time_remaining) {
+
+    QProgressDialog::setValue(_value);
+
+    bool l_display_tooltip = _time_remaining[0] > 0 || _time_remaining[1] > 0 || _time_remaining[2] > 0;
+
+    if (l_display_tooltip) {// do not display tooltip if progress is about to end (ie: ~s)
+
+        QString tooltip_text = QString::number(_value_abs) + "/" + QString::number(_maximum_abs);
+        tooltip_text += "\nRemaining time : ";
+        bool l_time_display = false;
+        if (_time_remaining[0] > 0) {
+            tooltip_text += QString::number(_time_remaining[0]) + " h ";
+            l_time_display = true;
+        }
+        if (_time_remaining[1] > 0) {
+            tooltip_text += QString::number(_time_remaining[1]) + " min ";
+            l_time_display = true;
+        }
+        if (_time_remaining[2] > 0) {
+            tooltip_text += QString::number(_time_remaining[2]) + " s";
+            l_time_display = true;
+        }
+
+        setToolTip(tooltip_text);
+
+    } else {
+        setToolTip(QString());
+    }
+
+}
+
+inline void GlvProgression::end() {
+
+    if (!QProgressDialog::wasCanceled() && l_cancel_requested) {
+        QProgressDialog::cancel();
+        l_cancel_requested = false;
+    }
+
+    if (l_auto_hide) {
+        hide();
+    }
+
+}
+
+inline void GlvProgression::final(bool _l_remove) {
+
+    if (_l_remove) {
+        progress_mgr->remove_progression(this);
+    } else {
+        hide();
+    }
+
+}
+
+inline void GlvProgression::cancel() {
+
+    // Since QProgressDialog::cancel() is not virtual, QProgressDialog::canceled() signal will trigger both QProgressDialog::cancel() and GlvProgression::cancel()
+    if (!QProgressDialog::wasCanceled()) {
+        if (progression->is_cancelable()) {// if control on progress is possible
+            QProgressDialog::cancel();
+            end();
+        } else {
+            l_cancel_requested = true;
+        }
+    }
+    
+    progression->cancel();
 
 }
 
@@ -28601,105 +28978,6 @@ inline GlvWidgetData<Tdata>::~GlvWidgetData() {
 
 #endif
 
-//#include "slv_string.h"
-
-inline SlvTimer::SlvTimer(std::string _name) :SlvName(_name) {
-
-    reset();
-}
-
-inline SlvTimer::~SlvTimer() {
-
-}
-
-inline void SlvTimer::reset() {
-
-    check_times.clear();
-    check_times.push_back(clock());//start time
-}
-
-inline void SlvTimer::check_display(std::string _message) {
-
-    check_times.push_back(clock());
-
-    std::cout << "(SlvTimer " << name << ", " << _message << ")" << std::endl;
-    std::cout << "last check: ";
-    time_display(check_times.back() - check_times[check_times.size() - 2]);
-    std::cout << " ago " << std::endl;
-    std::cout << "from start: ";
-    time_display(check_times.back() - check_times.front());
-    std::cout << std::endl;
-
-}
-
-inline std::string SlvTimer::get_string() const {
-
-    std::string time;
-    std::vector<int> time_vector = get_time(clock() - check_times[0]);
-    if (time_vector[0] > 0) {
-        time = slv::string::to_string(time_vector[0]) + " h ";
-    }
-    if (time_vector[1] > 0 || time_vector[0] > 0) {
-        time += slv::string::to_string(time_vector[1]) + " min ";
-    }
-    if (time_vector[2] > 0 || time_vector[1] > 0 || time_vector[0] > 0) {
-        time += slv::string::to_string(time_vector[2]) + " s ";
-    }
-    if (time_vector[3] > 0 || time_vector[2] > 0 || time_vector[1] > 0 || time_vector[0] > 0) {
-        time += slv::string::to_string(time_vector[3]) + " ms ";
-    }
-
-    return time;
-}
-
-inline std::vector<int> SlvTimer::get_elasped_time() {
-
-    check_times.push_back(clock());
-
-    return get_time(check_times.back() - check_times[0]);
-
-}
-
-inline std::vector<int> SlvTimer::get_elasped_time_last() {
-
-    check_times.push_back(clock());
-
-    return get_time(check_times.back() - check_times.end()[-2]);
-
-}
-
-inline void SlvTimer::time_display(clock_t _time) const {
-
-    std::vector<int> time_vector = get_time(_time);
-    std::cout << time_vector[0] << " h " << time_vector[1] << " min " << time_vector[2] << " s " << time_vector[3] << " ms";
-
-}
-
-inline std::vector<int> SlvTimer::get_time(clock_t _time) const {
-
-    std::vector<int> time_vector;
-
-    double time = double(_time) / CLOCKS_PER_SEC;
-
-    long int time_int = (long int)time;
-    int n_milliseconds = int((time - double(time_int)) * 1000);
-
-    int n_hours, n_minutes, n_seconds;
-
-    n_hours = (time_int - time_int % 3600) / 3600;
-    time_vector.push_back(n_hours);
-    time_int -= n_hours * 3600;
-    n_minutes = (time_int - time_int % 60) / 60;
-    time_vector.push_back(n_minutes);
-    time_int -= n_minutes * 60;
-    n_seconds = (time_int - time_int % 1) / 1;
-    time_vector.push_back(n_seconds);
-
-    time_vector.push_back(n_milliseconds);
-
-    return time_vector;
-}
-
 #if __cplusplus > 201402L
 
 template <>
@@ -28847,145 +29125,6 @@ inline bool slv::rw::readB<char>(char* _dat, std::ifstream& _input_file) {
 }
 
 #ifndef GLOVE_DISABLE_QT
-
-inline GlvProgression::GlvProgression(GlvProgressMgr* _progress_mgr, SlvProgressionQt* _progression, bool _l_auto_hide, bool _l_show_before_start, QWidget* _parent) :QProgressDialog(_parent), l_auto_hide(_l_auto_hide), l_show_before_start(_l_show_before_start) {
-    
-    setValue(0);
-    setMaximum(100);
-
-    l_has_started = false;
-    l_cancel_requested = false;
-
-    progress_mgr = _progress_mgr;
-
-    QProgressDialog::setAutoReset(false);
-    QProgressDialog::setAutoClose(false);
-
-    progression = NULL;
-    set_progression(_progression);
-
-    cancel_button = new QPushButton(tr("Cancel"));
-    QProgressDialog::setCancelButton(cancel_button);
-    cancel_button->setEnabled(false);
-
-    setSizePolicy(QSizePolicy::Policy::MinimumExpanding, QSizePolicy::Policy::MinimumExpanding);
-
-}
-
-inline GlvProgression::~GlvProgression() {
-
-}
-
-inline void GlvProgression::set_progression(SlvProgressionQt* _progression) {
-
-    if (_progression) {
-
-        if (progression) {
-#if OPTION_ENABLE_SLV_QT_PROGRESS==1
-            progression->disconnect();
-#endif
-        }
-
-        QProgressDialog::setLabelText(glv::toQString(_progression->get_name()));
-
-        progression = _progression;
-
-#if OPTION_ENABLE_SLV_QT_PROGRESS==1
-        connect(progression, SIGNAL(started()), this, SLOT(start()));
-        // thread safe. In case executed slot doesn't have time to go through.
-        connect(progression, SIGNAL(updated(int)), this, SLOT(setValue(int)), Qt::BlockingQueuedConnection);
-        connect(progression, SIGNAL(ended()), this, SLOT(end()));
-        connect(progression, SIGNAL(finished(bool)), this, SLOT(final(bool)));
-#endif
-
-    }
-
-}
-
-inline const SlvProgressionQt* GlvProgression::get_progression() const {
-
-    return progression;
-}
-
-inline bool GlvProgression::is_showable() const {
-
-    return l_has_started || l_show_before_start;
-
-}
-
-inline bool GlvProgression::is_over() const {
-
-    return progression->is_over();
-}
-
-inline void GlvProgression::start() {
-
-    QProgressDialog::reset();//to reset wasCanceled
-    setValue(0);
-
-    l_has_started = true;
-
-    std::string text = progression->get_name();
-    if (!text.empty() && !progression->get_message().empty()) {
-        text += " : ";
-    }
-    // Update QProgressDialog::text with message.
-    text += progression->get_message();
-
-    QProgressDialog::setLabelText(glv::toQString(text));
-
-    if (progression->has_iterator_ptr() || progression->is_iterating()) {
-        cancel_button->setEnabled(true);
-        setMaximum(100);
-        connect(this, SIGNAL(canceled()), this, SLOT(cancel()), Qt::ConnectionType::UniqueConnection);
-    } else {
-        cancel_button->hide();
-        setMaximum(0);
-        findChild<QProgressBar*>()->setTextVisible(false);
-        disconnect(this, SIGNAL(canceled()), this, SLOT(cancel()));
-    }
-
-    show();
-}
-
-inline void GlvProgression::end() {
-
-    if (!QProgressDialog::wasCanceled() && l_cancel_requested) {
-        QProgressDialog::cancel();
-        l_cancel_requested = false;
-    }
-
-    if (l_auto_hide) {
-        hide();
-    }
-
-}
-
-inline void GlvProgression::final(bool _l_remove) {
-
-    if (_l_remove) {
-        progress_mgr->remove_progression(this);
-    } else {
-        hide();
-    }
-
-}
-
-inline void GlvProgression::cancel() {
-
-    // Since QProgressDialog::cancel() is not virtual, QProgressDialog::canceled() signal will trigger both QProgressDialog::cancel() and GlvProgression::cancel()
-    if (!QProgressDialog::wasCanceled()) {
-        if (progression->is_cancelable()) {// if control on progress is possible
-            QProgressDialog::cancel();
-            end();
-        } else {
-            l_cancel_requested = true;
-        }
-    }
-    
-    progression->cancel();
-
-}
 
 inline QTreeView* glv::view::toQTreeView(QStandardItemModel* _model) {
 
