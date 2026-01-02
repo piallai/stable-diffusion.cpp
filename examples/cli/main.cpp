@@ -113,7 +113,7 @@ struct SDCliParams {
                 if (mode_found == -1) {
                     LOG_ERROR("error: invalid mode %s, must be one of [%s]\n",
                               mode_c_str, SD_ALL_MODES_STR);
-                    exit(1);
+                    return -1;
                 }
                 mode = (SDMode)mode_found;
             }
@@ -207,19 +207,21 @@ void print_usage(int argc, const char* argv[], const std::vector<ArgOptions>& op
     options_list[2].print();
 }
 
-void parse_args(int argc, const char** argv, SDCliParams& cli_params, SDContextParams& ctx_params, SDGenerationParams& gen_params) {
+int parse_args(int argc, const char** argv, SDCliParams& cli_params, SDContextParams& ctx_params, SDGenerationParams& gen_params, bool& proceed) {
     std::vector<ArgOptions> options_vec = {cli_params.get_options(), ctx_params.get_options(), gen_params.get_options()};
 
     if (!parse_options(argc, argv, options_vec)) {
         print_usage(argc, argv, options_vec);
-        exit(cli_params.normal_exit ? 0 : 1);
+        proceed = false;
+        return cli_params.normal_exit ? 0 : 1;
     }
 
     if (!cli_params.process_and_check() ||
         !ctx_params.process_and_check(cli_params.mode) ||
         !gen_params.process_and_check(cli_params.mode, ctx_params.lora_model_dir)) {
         print_usage(argc, argv, options_vec);
-        exit(1);
+        proceed = false;
+        return 1;
     }
 
 }
@@ -390,7 +392,9 @@ int main(int argc, char* argv[]) {
     SDContextParams ctx_params;
     SDGenerationParams gen_params;
 
-    parse_args(argc, const_cast<const char**>(argv), cli_params, ctx_params, gen_params);
+    bool proceed;
+    int parsing_exit_code = parse_args(argc, const_cast<const char**>(argv), cli_params, ctx_params, gen_params, proceed);
+    if (proceed) {
     if (gen_params.video_frames > 4) {
         size_t last_dot_pos   = cli_params.preview_path.find_last_of(".");
         std::string base_path = cli_params.preview_path;
@@ -856,7 +860,7 @@ int main(int argc, char* argv[]) {
     free(results);
 
     release_all_resources();    
-
+    }
 #ifdef SD_EXAMPLES_GLOVE_GUI
     glove_recurrent_var.params = glove_parametrization;
     glove_recurrent_var.count++;
@@ -868,5 +872,5 @@ int main(int argc, char* argv[]) {
 #endif
 #endif
 
-    return 0;
+    return parsing_exit_code;
 }
