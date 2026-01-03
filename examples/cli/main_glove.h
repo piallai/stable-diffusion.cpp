@@ -261,8 +261,12 @@ sd_image_t* crop(const sd_image_t& _image, int _left, int _right, int _up, int _
 #endif
 struct RecurrentStruct {
     sd_ctx_t* sd_ctx = NULL;
-    void clear() {
-        free_sd_ctx(sd_ctx);
+    SlvStatus clear() {
+        if (sd_ctx) {
+            free_sd_ctx(sd_ctx);
+            sd_ctx = NULL;
+        }
+        return SlvStatus();
     }
     GlvSdParams params;
     bool model_updated(const GlvSdParams& _params) {
