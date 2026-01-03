@@ -370,6 +370,7 @@ int main(int argc, char* argv[]) {
 
     RecurrentStruct glove_recurrent_var;
     GLOVE_APP_TITLE("stable-diffusion.cpp");
+    GLOVE_APP_MENU_ABOUT(version_string());
     GLOVE_APP_PARAM(GlvSdParams);
 
     if (argc > 1 && std::string(argv[1]) == "--version") {
