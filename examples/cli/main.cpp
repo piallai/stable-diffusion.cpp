@@ -370,7 +370,11 @@ int main(int argc, char* argv[]) {
 
     RecurrentStruct glove_recurrent_var;
     GLOVE_APP_TITLE("stable-diffusion.cpp");
+    GLOVE_APP_MENU_HELP(true);
     GLOVE_APP_MENU_ABOUT(version_string());
+    GLOVE_APP_MENU_LICENSE_ADD("stable-diffusion.cpp", "MIT", "Diffusion model(SD,Flux,Wan,Qwen Image,Z-Image,...) inference in pure C/C++ ", "https://github.com/leejet/stable-diffusion.cpp");
+    GLOVE_APP_MENU_LICENSE_ADD("ggml", "MIT", "Tensor library for machine learning", "https://github.com/ggml-org/ggml");
+    GLOVE_APP_MENU_LICENSE_ADD("Qt", "LGPLv3", "Cross-platform application development framework for creating graphical user interfaces", "https://www.qt.io/");
     GLOVE_APP_PARAM(GlvSdParams);
 
     if (argc > 1 && std::string(argv[1]) == "--version") {
