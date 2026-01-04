@@ -381,6 +381,8 @@ std::string format_frame_idx(std::string pattern, int frame_idx) {
 bool save_results(const SDCliParams& cli_params,
                   const SDContextParams& ctx_params,
                   const SDGenerationParams& gen_params,
+                  const RecurrentStruct& _glove_recurrent_var,
+                  const GlvSdParams& _glove_parametrization,
                   sd_image_t* results,
                   int num_results) {
     if (results == nullptr || num_results <= 0) {
@@ -457,14 +459,18 @@ bool save_results(const SDCliParams& cli_params,
 
     
 #ifdef SD_EXAMPLES_IMG2IMG_REPEAT
-    fs::path base_path_repeat = base_path + "-" + std::to_string(glove_recurrent_var.count);
-    if (glove_recurrent_var.l_img2img_sequence && num_results == 1) {
+    fs::path base_path_repeat = base_path;
+    base_path_repeat += "-" + std::to_string(_glove_recurrent_var.count);
+    if (_glove_recurrent_var.l_img2img_sequence && num_results == 1) {
         int i = 0;
         fs::path img_path = base_path_repeat;
         img_path += ext;
         write_image(img_path, 0);
 
-        sd_image_t* result_cropped = crop(results[i], glove_parametrization.get_images_sequence_params().get_crop().left, glove_parametrization.get_images_sequence_params().get_crop().right, glove_parametrization.get_images_sequence_params().get_crop().up, glove_parametrization.get_images_sequence_params().get_crop().bottom);
+        sd_image_t* result_cropped = crop(results[i], _glove_parametrization.get_images_sequence_params().get_crop().left, 
+            _glove_parametrization.get_images_sequence_params().get_crop().right, 
+            _glove_parametrization.get_images_sequence_params().get_crop().up, 
+            _glove_parametrization.get_images_sequence_params().get_crop().bottom);
         results[i]                 = *result_cropped;
         delete result_cropped;
     }
@@ -905,7 +911,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    if (!save_results(cli_params, ctx_params, gen_params, results, num_results)) {
+    if (!save_results(cli_params, ctx_params, gen_params, glove_recurrent_var, glove_parametrization, results, num_results)) {
         return 1;
     }
 
