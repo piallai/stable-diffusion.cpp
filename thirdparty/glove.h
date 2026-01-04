@@ -1,6 +1,6 @@
 /*
 * This file is part of the Glove distribution (https://github.com/piallai/glove).
-* Copyright (C) 2024 - 2025 Pierre Allain.
+* Copyright (C) 2024 - 2026 Pierre Allain.
 *
 * This program is free software: you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
@@ -20,8 +20,8 @@
 #define GLOVE_PV_SINGLE_HEADER
 
 #define GLOVE_VERSION_MAJOR 0
-#define GLOVE_VERSION_MINOR 7
-#define GLOVE_VERSION_PATCH 12
+#define GLOVE_VERSION_MINOR 8
+#define GLOVE_VERSION_PATCH 0
 
 #ifndef GLOVE_DISABLE_QT
 #define OPTION_ENABLE_SLV_QT_PROGRESS 1
@@ -72,6 +72,7 @@
 #include <vector>
 #include <typeinfo>
 #include <time.h>
+#include <streambuf>
 #include <istream>
 #include <ostream>
 #if OPTION_ENABLE_SLV_QT_PROGRESS==1
@@ -88,11 +89,13 @@
 #include <QVector>
 #include <QRect>
 #include <QWidget>
-#include <QVBoxLayout>
 #include <QFutureWatcher>
 #include <QApplication>
 #include <QMessageBox>
 #include <QtConcurrent/QtConcurrentRun>
+#include <QMenuBar>
+#include <QLayout>
+#include <QVBoxLayout>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QLineEdit>
@@ -3609,10 +3612,12 @@ public:
 	virtual void save(const std::string& _file_name) = 0;
 	virtual SlvStatus load(const std::string& _file_name) = 0;
 
-private slots:
+public slots:
 
-	void save_slot();
-	void load_slot();
+	/*! Open file to save to.*/
+	void save();
+	/*! Open file to load from.*/
+	void load();
 
 };
 
@@ -15366,6 +15371,48 @@ public:\
 class_declaration() :glvm_parametrization_constructor(param1_declaration, param2_declaration, param3_declaration, param4_declaration, param5_declaration, param6_declaration, param7_declaration, param8_declaration, param9_declaration, param10_declaration, param11_declaration, param12_declaration, param13_declaration, param14_declaration, param15_declaration, param16_declaration, param17_declaration, param18_declaration, param19_declaration, param20_declaration, param21_declaration, param22_declaration, param23_declaration, param24_declaration) {}\
 };
 
+#ifndef GLOVE_DISABLE_QT
+
+/*! Optional: Forces use of glove (ie: -glove is set by default).*/
+#define GLOVE_APP_AUTO false
+
+/*! Optional: Disable program execution in a separate thread. Progressions and status display can not be managed in this mode, only input parametrization can.
+* Can be convenient if one wants to execute the program in the closest conditions as the initial program is.
+* The program being 'gloved' remains fully compliant with thread mode deactivated.
+* Default is : true.
+* To be set just before calling GLOVE_APP.*/
+#define GLOVE_APP_THREAD_MODE true
+
+/*! Optional: Set application in recurrent mode. The program will be launched again upon acceptance.
+* Applies only if GLOVE_APP_THREAD_MODE is set to true.*/
+#define GLOVE_APP_RECURRENT_MODE false
+#define GLOVE_APP_RECURRENT_TYPE_DEFAULT int
+/*! Must be castable to bool. The returned boolean value accounts for the auto repeat mode to be enabled or not.*/
+#define GLOVE_APP_RECURRENT_TYPE GLOVE_APP_RECURRENT_TYPE_DEFAULT
+/*! Used only if GLOVE_APP_RECURRENT_MODE is left to false.*/
+static GLOVE_APP_RECURRENT_TYPE glove_recurrent_var = 0;
+/*! To set a title to the application. Must be defined in main, before calling the GLOVE_APP macro.*/
+#define GLOVE_APP_TITLE(title) GlvApp::set_title(title);
+/*! To set the application as a main window with a menu bar.*/
+#define GLOVE_APP_MENU true
+/*! To add an helper (result of -h or --help) to the application.*/
+#define GLOVE_APP_MENU_HELP(enable) GlvApp::set_helper(enable);
+/*! To set an 'About' text to the application. Must be defined in main, before calling the GLOVE_APP macro. Used only if GLOVE_APP_MENU is true*/
+#define GLOVE_APP_MENU_ABOUT(about) GlvApp::set_about(about);
+/*! Add the license of a component (ex: a library). Rich text is managed: compatible with hyperlinks. The licensed components will be referenced in 'About'.*/
+#define GLOVE_APP_MENU_LICENSE_ADD(component_name, license_name, component_text, component_url) GlvApp::add_component_license(component_name, license_name, component_text, component_url);
+
+#define glvm_pv_GLOVE_APP(Tparametrization, _l_auto_glove) \
+return GlvApp::main<Tparametrization>(argc, argv, _l_auto_glove, GLOVE_APP_MENU, GLOVE_APP_THREAD_MODE, GLOVE_APP_RECURRENT_MODE, glove_recurrent_var);\
+}\
+template <>\
+int glv_cli_main(int argc, char* argv[], bool is_glove, const Tparametrization& glove_parametrization, bool is_glove_recurrent, GLOVE_APP_RECURRENT_TYPE& glove_recurrent_var) {
+
+#define GLOVE_APP_MSVC_NO_CONSOLE \
+comment(linker, "/SUBSYSTEM:windows /ENTRY:mainCRTStartup")
+
+#endif
+
 /*! This class is a sort of std::map, with "factory" features.
 Tvalue must inherit SlvLabeling<Tlabel>, with Tlabel being the 'key'.
 Therefore, unlike std::map, the key (Tlabel) is owned by Tvalue.
@@ -17647,15 +17694,22 @@ std::string SlvCLI::get_CLI(const Tparametrization& _parametrization, bool _l_CL
 
 	std::string CLI_line;
 
-	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization = _parametrization.get_string_serialization_bool();
+	std::pair< std::vector< std::pair<std::string, std::string> >, std::vector< std::pair<std::string, bool> > > serialization;
 
+	std::vector<std::string> solo_arguments;
 	if (_l_CLI_mode) {
 		serialization = _parametrization.get_string_serialization_bool();
+		for (auto it = serialization.second.begin(); it != serialization.second.end(); ++it) {
+			if (it->second) {
+				solo_arguments.push_back(it->first);
+			}
+		}
 	} else {
 		serialization.first = _parametrization.get_string_serialization();
+		// ignores serialization.second and solo_arguments
 	}
 
-	std::pair<int, char**> cli_arguments = SlvCLI::get_arguments(serialization.first, serialization.second, false);
+	std::pair<int, char**> cli_arguments = SlvCLI::get_arguments(serialization.first, solo_arguments, false);
 
 	for (int i = 1; i < cli_arguments.first; i++) {
 		CLI_line += cli_arguments.second[i];
@@ -17717,6 +17771,79 @@ Tvalue* SlvPoolFactory<Tvalue, Tlabel>::get(const Tlabel& _label) {
 
 #ifndef GLOVE_DISABLE_QT
 
+#ifdef GLOVE_APP_SHARED
+#if defined(OS_WIN)
+#ifdef GLOVE_APP_SHARED_EXPORT
+#define GLOVE_APP_SHARED_API_QT Q_DECL_IMPORT
+#else
+#define GLOVE_APP_SHARED_API_QT Q_DECL_EXPORT
+#endif
+#else
+#define GLOVE_APP_SHARED_API_QT
+#endif
+#else
+#define GLOVE_APP_SHARED_API_QT
+#endif
+
+class QMenuBar;
+class QMenu;
+class QLabel;
+class QScrollArea;
+class GlvWidgetSaveLoad_base;
+class GlvParametrizationDialog_base;
+
+class GLOVE_APP_SHARED_API_QT GlvAppObject : public QObject {
+	Q_OBJECT
+private:
+
+	QMenuBar* menu_bar;
+	QMenu* menu_help;
+
+	QWidget* app_widget = NULL;
+	QLabel* helper_label;
+	QWidget* helper_widget;
+	QScrollArea* helper_scroll_area;
+
+	QLabel* about_label;
+	QWidget* about_widget;
+
+public:
+	GlvAppObject();
+	~GlvAppObject();
+
+	/*! Set the parametrization dialog widget, along with its save/load widget. Also manage recurrent memory depending on Trecurrent.*/
+	template <class Trecurrent>
+	void set_widget(GlvParametrizationDialog_base* _dialog, GlvWidgetSaveLoad_base* _save_load_widget);
+	/*! Set helper text.*/
+	void set_helper(const std::string& _helper);
+	/*! Set about text.*/
+	void set_about(const std::string& _about);
+
+private:
+	/*! Set the parametrization dialog widget, along with its save/load widget.*/
+	void set_widget_general(GlvParametrizationDialog_base* _dialog, GlvWidgetSaveLoad_base* _save_load_widget);
+	/*! Set memory/recurrent menu.*/
+	void set_menu_memory();
+
+public slots:
+	void show_help();
+	void show_about();
+	/*! Clear cached parametrization file.*/
+	void clear_cached();
+	/*! Clear recurrent memory.*/
+	void clear_recurrent();
+};
+
+template <class Trecurrent>
+void GlvAppObject::set_widget(GlvParametrizationDialog_base* _dialog, GlvWidgetSaveLoad_base* _save_load_widget) {
+
+	set_widget_general(_dialog, _save_load_widget);
+
+	if (!std::is_same<Trecurrent, GLOVE_APP_RECURRENT_TYPE_DEFAULT>::value) {
+		set_menu_memory();
+	}
+}
+
 class SlvParametrization_base;
 class QDialogButtonBox;
 class QVBoxLayout;
@@ -17752,6 +17879,11 @@ public:
 
     /*! Show or hide the button controlling rules complying, next to 'Ok' and 'Cancel'.*/
     void enable_abide_rules_button(bool _l_enable);
+
+    /*! Return the 'Ok' button of the dialog.*/
+    QPushButton* get_ok_button();
+    /*! Return the 'Cancel' button of the dialog.*/
+    QPushButton* get_cancel_button();
 
 protected :
     void set_parameters_widget_base(GlvParametersWidget_base* _parameters_widget_base);
@@ -17830,7 +17962,7 @@ private:
 };
 
 template <class Tparam>
-GlvParameterWidget<Tparam>::GlvParameterWidget(const SlvParameter<Tparam>& _parameter, bool l_editable, QWidget* _parent) :GlvDescribedWidget<Tparam>(_parameter.get_value(), std::is_same_v<Tparam, std::nullptr_t> ? "" : _parameter.get_name(), std::is_same_v<Tparam, std::nullptr_t> ? "" : _parameter.get_description(), l_editable, _parent) {
+GlvParameterWidget<Tparam>::GlvParameterWidget(const SlvParameter<Tparam>& _parameter, bool l_editable, QWidget* _parent) :GlvDescribedWidget<Tparam>(_parameter.get_value(), std::is_same_v<Tparam, std::nullptr_t> || std::is_base_of_v<SlvParametrization_base, Tparam> ? "" : _parameter.get_name(), std::is_same_v<Tparam, std::nullptr_t> ? "" : _parameter.get_description(), l_editable, _parent) {
 
     QObject::connect(this->data_widget, SIGNAL(valueChanged()), static_cast<GlvParameterWidget_base*>(this), SLOT(valueChanged_slot()));
 
@@ -18684,7 +18816,7 @@ template <class Tparametrization>
 SlvFileExtensions GlvParametrizationSaveLoad<Tparametrization>::allowed_extensions_constructor(SlvFileExtensions _allowed_extensions) {
 
     SlvFileExtensions allowed_extensions = _allowed_extensions;
-    allowed_extensions.add(SlvFileMgr::replace_forbidden_file_characters(Tparametrization::name(), '_', true, true));
+    allowed_extensions.add("." + SlvFileMgr::replace_forbidden_file_characters(Tparametrization::name(), '_', true, true));
 #if OPTION_USE_THIRDPARTY_JSON==1
     if (slv::rw::json::ReadWrite<Tparametrization>::l_valid) {
         allowed_extensions.add(".json");
@@ -19047,7 +19179,7 @@ public:
 	/*! Forbid continuation.*/
 	void set_frozen();
 	/*! Whether continue is possible or not.*/
-	bool proceeed() const;
+	bool proceed() const;
 
 private slots:
 
@@ -19060,6 +19192,33 @@ signals:
 	void display();
 
 };
+
+#endif
+
+/*! Capture a stream to a std::string*/
+class SlvCaptureStream : public std::basic_streambuf<char> {
+
+private:
+    std::ostream& stream;
+    std::streambuf* buff;
+    std::string string;
+
+    std::string* captured;
+
+public:
+    /*! \p _captured points to std::string to redirect the stream to.*/
+    SlvCaptureStream(std::ostream& _stream, std::string* _captured);
+    /*! Stops stream capture.*/
+    ~SlvCaptureStream();
+
+protected:
+
+    virtual int_type overflow(int_type _ch);
+    virtual std::streamsize xsputn(const char* _string, std::streamsize _n);
+
+};
+
+#ifndef GLOVE_DISABLE_QT
 
 /*! Use a parameter named \p parameter_name of the CLI parametrization as a location where to save the configuration file.
 * If such a parameter does not exist, return empty string.*/
@@ -19147,37 +19306,8 @@ glvm_pv_GLOVE_APP(GLOVE_APP_default_parametrization, GLOVE_APP_AUTO)
 
 glvm_parametrization(GLOVE_APP_default_parametrization, "default");
 
-/*! Optional: Forces use of glove (ie: -glove is set by default).*/
-#define GLOVE_APP_AUTO false
-
-/*! Optional: Disable program execution in a separate thread. Progressions and status display can not be managed in this mode, only input parametrization can.
-* Can be convenient if one wants to execute the program in the closest conditions as the initial program is.
-* The program being 'gloved' remains fully compliant with thread mode deactivated.
-* Default is : true.
-* To be set just before calling GLOVE_APP.*/
-#define GLOVE_APP_THREAD_MODE true
-
-/*! Optional: Set application in recurrent mode. The program will be launched again upon acceptance.
-* Applies only if GLOVE_APP_THREAD_MODE is set to true.*/
-#define GLOVE_APP_RECURRENT_MODE false
-/*! Must be castable to bool. The returned boolean value accounts for the auto repeat mode to be enabled or not.*/
-#define GLOVE_APP_RECURRENT_TYPE int
-/*! Used only if GLOVE_APP_RECURRENT_MODE is left to false.*/
-static GLOVE_APP_RECURRENT_TYPE glove_recurrent_var = 0;
-/*! To set a title to the application. Must be defined in main, before calling the GLOVE_APP macro.*/
-#define GLOVE_APP_TITLE(title) GlvApp::set_title(title);
-
-#define glvm_pv_GLOVE_APP(Tparametrization, _l_auto_glove) \
-return GlvApp::main<Tparametrization>(argc, argv, _l_auto_glove, GLOVE_APP_THREAD_MODE, GLOVE_APP_RECURRENT_MODE, glove_recurrent_var);\
-}\
-template <>\
-int glv_cli_main(int argc, char* argv[], bool is_glove, const Tparametrization& glove_parametrization, bool is_glove_recurrent, GLOVE_APP_RECURRENT_TYPE& glove_recurrent_var) {
-
 template <class Tparametrization, class Trecurrent>
-int glv_cli_main(int argc, char* argv[], bool _l_gloved, const Tparametrization& _parametrization, bool _l_recurrent, Trecurrent & _recurrent_var);//forward declare for gcc
-
-#define GLOVE_APP_MSVC_NO_CONSOLE \
-comment(linker, "/SUBSYSTEM:windows /ENTRY:mainCRTStartup")
+int glv_cli_main(int argc, char* argv[], bool _l_gloved, const Tparametrization& _parametrization, bool _l_recurrent, Trecurrent& _recurrent_var);//forward declare for gcc
 
 class GlvProgressMgr;
 class GlvStatusMgr;
@@ -19197,6 +19327,9 @@ class SlvProgressionQt;
 #define GLOVE_APP_SHARED_API
 #endif
 
+class GlvAppObject;
+
+/*! Class managing the transformation of a CLI application to CLI-GUI application.*/
 class GLOVE_APP_SHARED_API GlvApp {
 	
 private :
@@ -19204,6 +19337,10 @@ private :
 	class RecurrentWrapper;
 	template <class Tparametrization, class Trecurrent>
 	class RecurrentWrapperT;
+
+	class RecurrentClearer_base;
+	template <class Trecurrent>
+	class RecurrentClearer;
 
 	struct Interface {
 		QFuture<int> future;
@@ -19214,11 +19351,24 @@ private :
 public:
 
 	glvm_staticVariableGetSet(std::string, title, "");
+	glvm_staticVariableGetSet(std::string, about, "");
+	glvm_staticVariableGetSet_bool(helper, false);
+	struct ComponentLicense {
+		std::string component_name;
+		std::string license;
+		std::string component_text;
+		std::string component_url;
+	};
+	glvm_staticVariable_def(, std::vector<ComponentLicense>, component_licenses);
+	static void add_component_license(std::string _component_name, std::string _license, std::string _component_text, std::string _component_url);
 
 	template <class Tparametrization, class Trecurrent>
-	static int main(int _argc, char* _argv[], bool _l_auto_glove, bool _l_threaded, bool _l_recurrent, Trecurrent& _recurrent);
+	static int main(int _argc, char* _argv[], bool _l_auto_glove, bool _l_main_menu, bool _l_threaded, bool _l_recurrent, Trecurrent& _recurrent);
 	template <class Tparametrization, class Trecurrent>
-	static int main_recurrent(int _argc, char* _argv[], bool _l_threaded, Interface& _interface, bool _l_recurrent, Trecurrent& _recurrent);
+	static int main_recurrent(int _argc, char* _argv[], bool _l_main_menu, bool _l_threaded, Interface& _interface, bool _l_recurrent, Trecurrent& _recurrent);
+
+	glvm_staticVariable_def(, std::string, autosave_file_name);
+	glvm_staticVariable_def(, RecurrentClearer_base*, recurrent_clearer);
 
 private:
 
@@ -19230,12 +19380,16 @@ private:
 		}
 	};
 
+	template <class Tparametrization>
+	static std::string get_autosave_file_name();
+
 	/*! Progressions managed by GLOVE_APP_CLI.*/
 	glvm_staticVariable_def(, SlvPoolFactory<SlvProgressionQt COMMA slv::lbl::Name>, progressions);
 	glvm_staticVariable(, SlvStatus, status, {});
 	glvm_staticVariable(, GlvProgressMgr*, progress_mgr, NULL);
 	glvm_staticVariable(, GlvStatusMgr*, status_mgr, NULL);
 	glvm_staticVariable(, Interface, interface, );
+	glvm_staticVariable_def(, GlvAppObject*, app_object);
 
 public :
 
@@ -19270,6 +19424,7 @@ private:
 	char** argv;
 	Trecurrent* recurrent_var;
 	Interface* interface = NULL;
+	bool l_main_menu = false;
 
 public:
 
@@ -19285,21 +19440,60 @@ public:
 		interface = _interface;
 	}
 
+	void set_main_menu(bool _l_main_menu) {
+		l_main_menu = _l_main_menu;
+	}
+
 	void relaunch() {
 		bool l_threaded = true;
 		bool l_recurrent = true;
-		GlvApp::main_recurrent<Tparametrization, Trecurrent>(argc, argv, l_threaded, *interface, l_recurrent, *recurrent_var);
+		GlvApp::main_recurrent<Tparametrization, Trecurrent>(argc, argv, l_main_menu, l_threaded, *interface, l_recurrent, *recurrent_var);
 	}
 
 };
 
-template <class Tparametrization, class Trecurrent>
-int GlvApp::main_recurrent(int _argc, char* _argv[], bool _l_threaded, Interface& _interface, bool _l_recurrent, Trecurrent& _recurrent_var) {
+class GlvApp::RecurrentClearer_base {
+public:
+	RecurrentClearer_base() {}
+	virtual SlvStatus clear() const = 0;
+protected:
+	static SlvStatus clear(GLOVE_APP_RECURRENT_TYPE_DEFAULT& _recurrent);
+	template <class Trecurrent>
+	static SlvStatus clear(Trecurrent& _recurrent);
+};
 
-	std::string autosave_file_name = SlvFileMgr::replace_forbidden_file_characters(Tparametrization::name(), '_', true, true);
+template <class Trecurrent>
+class GlvApp::RecurrentClearer : public GlvApp::RecurrentClearer_base {
+private:
+	Trecurrent* recurrent;
+public:
+	RecurrentClearer(Trecurrent* _recurrent): recurrent(_recurrent) {}
+	SlvStatus clear() const {
+		return RecurrentClearer_base::clear(*recurrent);
+	}
+};
+
+template <class Trecurrent>
+SlvStatus GlvApp::RecurrentClearer_base::clear(Trecurrent& _recurrent) {
+	return _recurrent.clear();
+}
+
+inline SlvStatus GlvApp::RecurrentClearer_base::clear(GLOVE_APP_RECURRENT_TYPE_DEFAULT& _recurrent) {
+	return SlvStatus();
+}
+
+template <class Tparametrization>
+std::string GlvApp::get_autosave_file_name() {
+
+	std::string autosave_file_name_ = SlvFileMgr::replace_forbidden_file_characters(Tparametrization::name(), '_', true, true);
 #if OPTION_USE_THIRDPARTY_JSON==1
-	autosave_file_name += ".json";
+	autosave_file_name_ += ".json";
 #endif
+	return autosave_file_name_;
+}
+
+template <class Tparametrization, class Trecurrent>
+int GlvApp::main_recurrent(int _argc, char* _argv[], bool _l_main_menu, bool _l_threaded, Interface& _interface, bool _l_recurrent, Trecurrent& _recurrent_var) {
 
 	if (progress_mgr()) {
 		progress_mgr()->hide();
@@ -19315,9 +19509,9 @@ int GlvApp::main_recurrent(int _argc, char* _argv[], bool _l_threaded, Interface
 
 		save_load_widget->load(arguments.get_glove_argument());// Load parametrization file
 
-	} else if (SlvFile(autosave_file_name).exists()) {
+	} else if (SlvFile(autosave_file_name()).exists()) {
 
-		save_load_widget->load(autosave_file_name);
+		save_load_widget->load(autosave_file_name());
 
 	}
 
@@ -19334,6 +19528,10 @@ int GlvApp::main_recurrent(int _argc, char* _argv[], bool _l_threaded, Interface
 
 	}
 
+	if (_l_main_menu) {
+		app_object()->set_widget<Trecurrent>(&dialog, save_load_widget);
+	}
+
 	int result;
 	if (Tparametrization::Nparameters() > 0 && !(bool)_recurrent_var) {
 		result = dialog.exec();
@@ -19343,11 +19541,11 @@ int GlvApp::main_recurrent(int _argc, char* _argv[], bool _l_threaded, Interface
 
 	if (result == QDialog::Accepted) {
 
-		save_load_widget->save(autosave_file_name);
+		save_load_widget->save(autosave_file_name());
 
 		SlvDirectory directory(ParamOutput<Tparametrization>::get_path(dialog.get_parametrization()));
 		if (directory.exists() && !directory.is_current()) {// do not save again if the directory is current
-			save_load_widget->save(SlvFile(directory, autosave_file_name).get_path());
+			save_load_widget->save(SlvFile(directory, autosave_file_name()).get_path());
 		}
 
 		std::vector< std::pair<std::string, std::string> > parameter_arguments = dialog.get_parametrization().get_string_serialization_bool().first;
@@ -19399,15 +19597,21 @@ int GlvApp::main_recurrent(int _argc, char* _argv[], bool _l_threaded, Interface
 }
 
 template <class Tparametrization, class Trecurrent>
-int GlvApp::main(int _argc, char* _argv[], bool _l_auto_glove, bool _l_threaded, bool _l_recurrent, Trecurrent& _recurrent_var) {
+int GlvApp::main(int _argc, char* _argv[], bool _l_auto_glove, bool _l_main_menu, bool _l_threaded, bool _l_recurrent, Trecurrent& _recurrent_var) {
 
 	if (SlvCLI::has_glove(_argc, _argv) || _l_auto_glove) {
 
 		QApplication q_app(_argc, _argv);
-		q_app.setApplicationDisplayName(QString::fromStdString(title()));
+		if (!title().empty()) {
+			q_app.setApplicationDisplayName(QString::fromStdString(title()));
+		}
 		if (_l_recurrent) {
 			q_app.setQuitOnLastWindowClosed(false);
 		}
+
+		if (!app_object()) app_object() = new GlvAppObject;
+		autosave_file_name() = get_autosave_file_name<Tparametrization>();
+		if (!recurrent_clearer()) recurrent_clearer() = new RecurrentClearer<Trecurrent>(&_recurrent_var);
 
 		if (_l_threaded) {
 
@@ -19427,13 +19631,29 @@ int GlvApp::main(int _argc, char* _argv[], bool _l_auto_glove, bool _l_threaded,
 			} else {
 				RecurrentWrapperT<Tparametrization, Trecurrent>* recurrent_wrapper = new RecurrentWrapperT<Tparametrization, Trecurrent>;
 				recurrent_wrapper->set_interface(&interface());
+				recurrent_wrapper->set_main_menu(_l_main_menu);
 				interface().recurrent_wrapper = recurrent_wrapper;
 				QObject::connect(&interface().future_watcher, SIGNAL(finished()), interface().recurrent_wrapper, SLOT(relaunch()));
 			}
 
 		}
 
-		int exit = main_recurrent<Tparametrization>(_argc, _argv, _l_threaded, interface(), _l_recurrent, _recurrent_var);
+		if (_l_main_menu) {
+
+			std::string helper;
+			if (is_helper()) {
+				SlvCaptureStream capture_stream(std::cout, &helper);
+				std::pair<int, char**> cli_arguments = SlvCLI::get_arguments({}, { "-h", "--help" });
+				Tparametrization parametrization;
+				Trecurrent recurrent;
+				glv_cli_main(cli_arguments.first, cli_arguments.second, false, Tparametrization(), false, recurrent);
+			}
+
+			app_object()->set_helper(helper);
+			app_object()->set_about(about());
+		}
+
+		int exit = main_recurrent<Tparametrization>(_argc, _argv, _l_main_menu, _l_threaded, interface(), _l_recurrent, _recurrent_var);
 
 		if (!exit && _l_threaded) {
 
@@ -24299,8 +24519,8 @@ inline GlvWidgetSaveLoad_base::GlvWidgetSaveLoad_base(const SlvFileExtensions& _
 	main_layout->addWidget(load_button);
 	this->setLayout(main_layout);
 
-	connect(save_button, SIGNAL(clicked()), this, SLOT(save_slot()));
-	connect(load_button, SIGNAL(clicked()), this, SLOT(load_slot()));
+	connect(save_button, SIGNAL(clicked()), this, SLOT(save()));
+	connect(load_button, SIGNAL(clicked()), this, SLOT(load()));
 
 	open_file = NULL;
 }
@@ -24399,7 +24619,7 @@ inline void GlvWidgetSaveLoad_base::delete_open_file() {
 
 }
 
-inline void GlvWidgetSaveLoad_base::save_slot() {
+inline void GlvWidgetSaveLoad_base::save() {
 
 	GlvWidgetSaveLoad_base::open_file_save();
 	if (GlvWidgetSaveLoad_base::is_ready(QIODevice::WriteOnly)) {
@@ -24409,7 +24629,7 @@ inline void GlvWidgetSaveLoad_base::save_slot() {
 
 }
 
-inline void GlvWidgetSaveLoad_base::load_slot() {
+inline void GlvWidgetSaveLoad_base::load() {
 
 	if (GlvWidgetSaveLoad_base::open_file_load()) {
 		if (GlvWidgetSaveLoad_base::is_ready(QIODevice::ReadOnly)) {
@@ -26879,6 +27099,7 @@ inline std::pair<int, char**> SlvCLI::get_arguments(const std::vector< std::pair
 
 	int argc = 2 * Nfilled_parameters + (int)solo_arguments.size() + 1;
 	char** argv = new char* [argc];
+	argv[0] = new char('\0');
 
 	int k_arg = 0;
 	for (int i = 0; i < parameter_arguments.size(); i++) {
@@ -26919,6 +27140,172 @@ inline std::pair<int, char**> SlvCLI::get_arguments(const std::vector< std::pair
 }
 
 #ifndef GLOVE_DISABLE_QT
+
+inline GlvAppObject::GlvAppObject() {
+
+	helper_label = new QLabel;
+	helper_label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+
+	helper_scroll_area = new QScrollArea;
+	helper_scroll_area->setWidget(helper_label);
+	helper_scroll_area->setWidgetResizable(true);
+
+	helper_widget = new QWidget;
+	helper_widget->setWindowTitle("Help");
+	QVBoxLayout* helper_layout = new QVBoxLayout;
+	helper_widget->setLayout(helper_layout);
+	helper_widget->setWindowModality(Qt::WindowModal);
+	helper_widget->setMinimumWidth(300);
+	helper_widget->setMinimumHeight(200);
+
+	helper_layout->addWidget(helper_scroll_area);
+
+	about_label = new QLabel;
+	about_label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+	//about_label->setAlignment(Qt::AlignCenter);
+	about_label->setTextFormat(Qt::RichText);
+	about_label->setTextInteractionFlags(Qt::TextBrowserInteraction);
+	about_label->setOpenExternalLinks(true);
+	about_label->setMinimumWidth(300);
+	about_label->setMinimumHeight(200);
+	about_widget = new QWidget;
+	about_widget->setWindowTitle("About");
+	QVBoxLayout* about_layout = new QVBoxLayout;
+	about_widget->setLayout(about_layout);
+	about_widget->setWindowModality(Qt::WindowModal);
+	about_layout->setSizeConstraint(QLayout::SetFixedSize);
+	about_layout->addWidget(about_label);
+
+}
+
+inline GlvAppObject::~GlvAppObject() {
+
+}
+
+inline void GlvAppObject::set_widget_general(GlvParametrizationDialog_base* _dialog, GlvWidgetSaveLoad_base* _save_load_widget) {
+
+	menu_bar = new QMenuBar;
+	_dialog->layout()->setMenuBar(menu_bar);
+
+	QMenu* menu_file = menu_bar->addMenu("File");
+	menu_file->setToolTipsVisible(true);
+
+	QAction* load_action = new QAction("Open");
+	load_action->setToolTip(tr("Open a parametrization"));
+	load_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_O));
+	menu_file->addAction(load_action);
+	QObject::connect(load_action, SIGNAL(triggered(bool)), _save_load_widget, SLOT(load()));
+	QAction* save_action = new QAction("Save");
+	save_action->setToolTip(tr("Save the parametrization"));
+	save_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_S));
+	menu_file->addAction(save_action);
+	QObject::connect(save_action, SIGNAL(triggered(bool)), _save_load_widget, SLOT(save()));
+
+	QAction* clear_action = new QAction("Clear");
+	clear_action->setToolTip(tr("Clear the cached parametrization file located at execution directory"));
+	menu_file->addAction(clear_action);
+	QObject::connect(clear_action, SIGNAL(triggered(bool)), this, SLOT(clear_cached()));
+
+	_save_load_widget->setVisible(false);
+
+	if (!helper_label->text().isEmpty() || !about_label->text().isEmpty()) {
+		menu_help = menu_bar->addMenu("Help");
+		menu_help->setToolTipsVisible(true);
+		if (!helper_label->text().isEmpty()) {
+			QAction* help_action = new QAction("Help");
+			help_action->setToolTip(tr("-h or --help"));
+			menu_help->addAction(help_action);
+			QObject::connect(help_action, SIGNAL(triggered(bool)), this, SLOT(show_help()));
+		}
+
+		if (!about_label->text().isEmpty()) {
+			QAction* about_action = new QAction("About");
+			menu_help->addAction(about_action);
+			QObject::connect(about_action, SIGNAL(triggered(bool)), this, SLOT(show_about()));
+		}
+	}
+
+	_dialog->get_cancel_button()->setVisible(false);
+
+	app_widget = _dialog;
+
+}
+
+inline void GlvAppObject::set_menu_memory() {
+
+	QMenu* menu_memory = new QMenu("Memory");
+	menu_bar->insertMenu(menu_help->menuAction(), menu_memory);
+	menu_memory->setToolTipsVisible(true);
+	QAction* clear_recurrent = new QAction("Clear shared");
+	clear_recurrent->setToolTip(tr("Clear memory shared across runs"));
+	menu_memory->addAction(clear_recurrent);
+	QObject::connect(clear_recurrent, SIGNAL(triggered(bool)), this, SLOT(clear_recurrent()));
+
+}
+
+inline void GlvAppObject::set_helper(const std::string& _helper) {
+
+	helper_label->setText(QString::fromStdString(_helper));
+
+}
+
+inline void GlvAppObject::set_about(const std::string& _about) {
+
+	const std::string rich_ret = "<br>";
+	const std::string rich_tab = "&nbsp;&nbsp;&nbsp;&nbsp;";
+
+	std::string about = _about;
+	if (!GlvApp::component_licenses().empty()) {
+		about += rich_ret + "____________________________";
+		about += rich_ret + rich_ret + "License notices:";
+	}
+	for (auto lic = GlvApp::component_licenses().begin(); lic != GlvApp::component_licenses().end(); ++lic) {
+		about += rich_ret + rich_ret + rich_tab + "<b>" + lic->component_name + "</b>" + rich_tab + lic->license;
+		about += rich_ret + rich_tab + rich_tab + "<i>" + lic->component_text + (lic->component_text.empty() ? "" : rich_tab);
+		about += "<a href=\"" + lic->component_url + "\">" + lic->component_url + "</a>" + "</i>";
+	}
+	about_label->setText(QString::fromStdString(about));
+
+}
+
+inline void GlvAppObject::show_help() {
+
+	helper_widget->show();
+
+}
+
+inline void GlvAppObject::show_about() {
+
+	about_widget->show();
+
+}
+
+inline void GlvAppObject::clear_cached() {
+
+	bool l_cleared = false;
+
+	SlvFile file(GlvApp::autosave_file_name());
+	if (file.exists()) {
+		int result = std::remove(GlvApp::autosave_file_name().c_str());
+		if (!result) {
+			l_cleared = true;
+		}
+	}
+
+	if (l_cleared) {
+		glv::flag::INFO("Succesfully removed " + file.get_path());
+	} else {
+		glv::flag::INFO("No parametrization file to clear");
+	}
+
+}
+
+inline void GlvAppObject::clear_recurrent() {
+
+	SlvStatus status = GlvApp::recurrent_clearer()->clear();
+	glv::flag::showQMessageBox(tr("Problem clearing the memory"), status, true);
+
+}
 
 inline GlvParametrizationDialog_base::GlvParametrizationDialog_base(bool _l_dialog, bool _l_deny_invalid_parameters, QWidget* _parent) :QDialog(_parent, Qt::WindowContextHelpButtonHint | Qt::WindowCloseButtonHint) {
 
@@ -26968,6 +27355,18 @@ inline void GlvParametrizationDialog_base::enable_abide_rules_button(bool _l_ena
             abide_rules_button->hide();
         }
     }
+
+}
+
+inline QPushButton* GlvParametrizationDialog_base::get_ok_button() {
+
+    return button_box->button(QDialogButtonBox::Ok);
+
+}
+
+inline QPushButton* GlvParametrizationDialog_base::get_cancel_button() {
+
+    return button_box->button(QDialogButtonBox::Cancel);
 
 }
 
@@ -27031,6 +27430,9 @@ inline void GlvParametrizationDialog_base::resizeEvent(QResizeEvent* _event) {
             height += button_box->size().height();
             height += this->layout()->contentsMargins().top() + this->layout()->contentsMargins().bottom();
             height += m_layout->spacing();
+            if (m_layout->menuBar()) {
+                height += m_layout->menuBar()->size().height();
+            }
             setMaximumHeight(height);
 
         }
@@ -27059,9 +27461,7 @@ public:
 			if (min_width > max_width) {
 				min_width = max_width;
 			}
-			if (widget()->size().height() > QScrollArea::size().height()) {
-				min_width += QApplication::style()->pixelMetric(QStyle::PM_ScrollBarExtent);
-			}
+			min_width += QApplication::style()->pixelMetric(QStyle::PM_ScrollBarExtent);
 			QScrollArea::setMinimumWidth(min_width);
 		}
 		return QWidget::eventFilter(object, event);
@@ -28190,7 +28590,7 @@ inline void GlvStatusMgr::set_frozen() {
 
 }
 
-inline bool  GlvStatusMgr::proceeed() const {
+inline bool GlvStatusMgr::proceed() const {
 
 	return l_continue;
 
@@ -28206,7 +28606,61 @@ inline void GlvStatusMgr::show_status() {
 	l_continue = l_ok;
 }
 
+#endif
+
+inline SlvCaptureStream::SlvCaptureStream(std::ostream& _stream, std::string* _captured) : stream(_stream) {
+    captured = _captured;
+    buff = _stream.rdbuf();
+    _stream.rdbuf(this);
+}
+
+inline SlvCaptureStream::~SlvCaptureStream() {
+
+    if (!string.empty()) {
+        *captured += string;
+    }
+
+    stream.rdbuf(buff);
+}
+
+inline std::basic_streambuf<char>::int_type SlvCaptureStream::overflow(int_type _ch) {
+
+    if (_ch == '\n') {
+        *captured += '\n';
+        *captured += string;
+        string.erase(string.begin(), string.end());
+    } else {
+        string += _ch;
+    }
+
+    return _ch;
+}
+
+inline std::streamsize SlvCaptureStream::xsputn(const char* _string, std::streamsize _n) {
+
+    string.append(_string, _string + _n);
+
+    size_t pos = 0;
+    while (pos != std::string::npos) {
+        pos = string.find('\n');
+        if (pos != std::string::npos) {
+            std::string tmp(string.begin(), string.begin() + pos);
+            *captured += '\n';
+            *captured += tmp;
+            string.erase(string.begin(), string.begin() + pos + 1);
+        }
+    }
+
+    return _n;
+}
+
+#ifndef GLOVE_DISABLE_QT
+
+inline GLOVE_APP_SHARED_API_QT glvm_staticVariable_impl(, std::string, GlvApp, autosave_file_name, "");
+inline GLOVE_APP_SHARED_API_QT glvm_staticVariable_impl(, GlvApp::RecurrentClearer_base*, GlvApp, recurrent_clearer, NULL);
+inline GLOVE_APP_SHARED_API_QT glvm_staticVariable_impl(, std::vector<GlvApp::ComponentLicense>, GlvApp, component_licenses, );
 inline glvm_staticVariable_impl(, SlvPoolFactory<SlvProgressionQt COMMA slv::lbl::Name>, GlvApp, progressions, {});
+inline glvm_staticVariable_impl(, GlvAppObject*, GlvApp, app_object, NULL);
 
 inline SlvProgressionQt* GlvApp::get_progression(const slv::lbl::Name& _name) {
 
@@ -28230,9 +28684,20 @@ inline void GlvApp::show(const SlvStatus& _status, bool _l_wait) {
 			status_mgr()->display();
 		}
 
-		while (!status_mgr()->proceeed()) {}
+		while (!status_mgr()->proceed()) {}
 
 	}
+
+}
+
+inline GLOVE_APP_SHARED_API_QT void GlvApp::add_component_license(std::string _component_name, std::string _license, std::string _component_text, std::string _component_url) {
+
+	ComponentLicense component_license;
+	component_license.component_name = _component_name;
+	component_license.license = _license;
+	component_license.component_text = _component_text;
+	component_license.component_url = _component_url;
+	component_licenses().push_back(component_license);
 
 }
 

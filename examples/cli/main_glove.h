@@ -232,7 +232,7 @@ struct RecurrentStruct {
         return SlvStatus();
     }
     GlvSdParams params;
-    bool model_updated(const GlvSdParams& _params) {
+    bool context_changed(const GlvSdParams& _params) {// ie: model changed
         return _params.get_context_options() != params.get_context_options();
     }
     unsigned int count = 0;

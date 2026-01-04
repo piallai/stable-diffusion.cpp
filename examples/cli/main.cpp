@@ -753,7 +753,7 @@ int main(int argc, char* argv[]) {
     } else {
         sd_ctx_t* sd_ctx;
 #ifdef SD_EXAMPLES_GLOVE_GUI
-        if (!is_glove_recurrent || !glove_recurrent_var.sd_ctx || glove_recurrent_var.model_updated(glove_parametrization)) {
+        if (!is_glove_recurrent || !glove_recurrent_var.sd_ctx || glove_recurrent_var.context_changed(glove_parametrization)) {
             if (glove_recurrent_var.sd_ctx) {
                 free_sd_ctx(glove_recurrent_var.sd_ctx);
             }
