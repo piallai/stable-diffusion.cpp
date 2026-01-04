@@ -1,6 +1,8 @@
 
 #pragma once
 
+#ifdef SD_EXAMPLES_GLOVE_GUI
+
 #define GLOVE_ENABLE_JSON
 #include "glove.h"
 
@@ -219,50 +221,7 @@ glvm_parametrization_open(GlvSdCLIOptions)
 glvm_parametrization_open(GlvSdContextOptions)
 glvm_parametrization_open(GlvSdGenerationOptions)
 
-
-#ifdef SD_EXAMPLES_IMG2IMG_REPEAT
-sd_image_t* crop(const sd_image_t& _image, int _left, int _right, int _up, int _bottom) {
-
-    sd_image_t* image = new sd_image_t;
-
-    image->width = _image.width - _left - _right;
-    image->height  = _image.height - _up - _bottom;
-    image->channel = _image.channel;
-    image->data    = (uint8_t*)malloc(image->width * image->height * image->channel);
-
-    uint8_t* data = _image.data;
-    uint8_t* data2 = image->data;
-    for (int m = 0; m < _image.width * _image.height * _image.channel; m++) {
-    
-        int j = (m - m % (_image.width * _image.channel)) / (_image.width * _image.channel);
-        int n = m - j * _image.width * _image.channel;
-        int i = (n - n % _image.channel) / (_image.channel);
-        int k = n - i * _image.channel;
-
-        bool l_ok = false;
-
-        if (i >= _left) {
-            if (i < _image.width - _right) {
-                if (j >= _up) {
-                    if (j < _image.height - _bottom) {
-                        *data2 = *data;
-                        data2++;
-                        l_ok = true;
-                    }
-                }
-            }
-        }
-        data++;
-    }
-
-    return image;
-}
-#endif
-
-#ifdef SD_EXAMPLES_GLOVE_GUI
-#ifdef SD_EXAMPLES_GLOVE_GUI_DESKTOP
-#pragma GLOVE_APP_MSVC_NO_CONSOLE
-#endif
+// Manage 'server'-like application. Ie: keep the model loaded at each run.
 struct RecurrentStruct {
     sd_ctx_t* sd_ctx = NULL;
     SlvStatus clear() {
@@ -290,10 +249,10 @@ struct RecurrentStruct {
     }
 #endif
 };
-#endif
 
 #ifdef SD_EXAMPLES_GLOVE_GUI_DESKTOP
 #define GLOVE_APP_AUTO true
+#pragma GLOVE_APP_MSVC_NO_CONSOLE
 #endif
 #define GLOVE_APP_RECURRENT_MODE true
 #define GLOVE_APP_RECURRENT_TYPE RecurrentStruct
@@ -324,3 +283,44 @@ void glove_app_init() {
     GLOVE_APP_MENU_LICENSE_ADD("Glove", "GPLv3", "C++ Qt library for easy graphical user interfaces ", "https://github.com/piallai/glove");
 
 }
+
+
+// Usefull only for img2img sequence. Optional.
+#ifdef SD_EXAMPLES_IMG2IMG_REPEAT
+sd_image_t* crop(const sd_image_t& _image, int _left, int _right, int _up, int _bottom) {
+    sd_image_t* image = new sd_image_t;
+
+    image->width   = _image.width - _left - _right;
+    image->height  = _image.height - _up - _bottom;
+    image->channel = _image.channel;
+    image->data    = (uint8_t*)malloc(image->width * image->height * image->channel);
+
+    uint8_t* data  = _image.data;
+    uint8_t* data2 = image->data;
+    for (int m = 0; m < _image.width * _image.height * _image.channel; m++) {
+        int j = (m - m % (_image.width * _image.channel)) / (_image.width * _image.channel);
+        int n = m - j * _image.width * _image.channel;
+        int i = (n - n % _image.channel) / (_image.channel);
+        int k = n - i * _image.channel;
+
+        bool l_ok = false;
+
+        if (i >= _left) {
+            if (i < _image.width - _right) {
+                if (j >= _up) {
+                    if (j < _image.height - _bottom) {
+                        *data2 = *data;
+                        data2++;
+                        l_ok = true;
+                    }
+                }
+            }
+        }
+        data++;
+    }
+
+    return image;
+}
+#endif
+
+#endif
