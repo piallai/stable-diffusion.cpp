@@ -381,8 +381,10 @@ std::string format_frame_idx(std::string pattern, int frame_idx) {
 bool save_results(const SDCliParams& cli_params,
                   const SDContextParams& ctx_params,
                   const SDGenerationParams& gen_params,
+#ifdef SD_EXAMPLES_GLOVE_GUI
                   const RecurrentStruct& _glove_recurrent_var,
                   const GlvSdParams& _glove_parametrization,
+#endif
                   sd_image_t* results,
                   int num_results) {
     if (results == nullptr || num_results <= 0) {
@@ -893,7 +895,11 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    if (!save_results(cli_params, ctx_params, gen_params, glove_recurrent_var, glove_parametrization, results, num_results)) {
+    if (!save_results(cli_params, ctx_params, gen_params,
+#ifdef SD_EXAMPLES_GLOVE_GUI
+        glove_recurrent_var, glove_parametrization,
+#endif
+        results, num_results)) {
         return 1;
     }
 
