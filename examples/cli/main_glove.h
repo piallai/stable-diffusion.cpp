@@ -138,6 +138,7 @@ glvm_parametrization(GlvSdParamsHighNoise, "SD params (high noise)",
 #endif
 
 glvm_parametrization(GlvSdCLIOptionsAdvanced, "CLI options advanced",
+    output_begin_idx, unsigned int, "--output-begin-idx", "starting index for output image sequence, must be non-negative (default 0 if specified %d in output path, 1 otherwise)", 1,
     canny, bool, "--canny", "apply canny preprocessor (edge detection)", false,
     convert_name, bool, "--convert-name", "convert tensor name (for convert mode)", false,
     color, bool, "--color", "colors the logging tags according to level", false,
@@ -146,7 +147,7 @@ glvm_parametrization(GlvSdCLIOptionsAdvanced, "CLI options advanced",
 
 glvm_parametrization(GlvSdCLIOptions, "CLI options",
     mode, ProcessingMode, "--mode@-M", "run mode, one of [img_gen, vid_gen, upscale, convert], default: img_gen", ProcessingMode::img_gen,
-    output, SlvFile, "--output@-o", "path to write result image to (default: ./output.png)", SlvFile("./output.png", SlvFileExtensions({".png", ".jpg", ".jpeg", ".jpe"}), SlvFile::IO::Write),
+    output, SlvFile, "--output@-o", "path to write result image to. you can use printf-style %d format specifiers for image sequences (default: ./output.png) (eg. output_%03d.png)", SlvFile("./output.png", SlvFileExtensions({".png", ".jpg", ".jpeg", ".jpe"}), SlvFile::IO::Write),
     preview_params, GlvSdParamsPreview, "Preview", "", GlvSdParamsPreview(),
     advanced_params, GlvSdCLIOptionsAdvanced, "Advanced", "", GlvSdCLIOptionsAdvanced()
 )
