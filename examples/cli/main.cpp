@@ -31,9 +31,12 @@ const char* previews_str[] = {
     "vae",
 };
 
+std::regex format_specifier_regex("(?:[^%]|^)(?:%%)*(%\\d{0,3}d)");
+
 struct SDCliParams {
     SDMode mode             = IMG_GEN;
     std::string output_path = "output.png";
+    int output_begin_idx    = -1;
 
     bool verbose          = false;
     bool canny_preprocess = false;
@@ -55,7 +58,7 @@ struct SDCliParams {
         options.string_options = {
             {"-o",
              "--output",
-             "path to write result image to (default: ./output.png)",
+             "path to write result image to. you can use printf-style %d format specifiers for image sequences (default: ./output.png) (eg. output_%03d.png)",
              &output_path},
             {"",
              "--preview-path",
@@ -68,6 +71,10 @@ struct SDCliParams {
              "--preview-interval",
              "interval in denoising steps between consecutive updates of the image preview file (default is 1, meaning updating at every step)",
              &preview_interval},
+            {"",
+             "--output-begin-idx",
+             "starting index for output image sequence, must be non-negative (default 0 if specified %d in output path, 1 otherwise)",
+             &output_begin_idx},
         };
 
         options.bool_options = {
@@ -352,6 +359,137 @@ void step_callback(int step, int frame_count, sd_image_t* image, bool is_noisy, 
     }
 }
 
+std::string format_frame_idx(std::string pattern, int frame_idx) {
+    std::smatch match;
+    std::string result = pattern;
+    while (std::regex_search(result, match, format_specifier_regex)) {
+        std::string specifier = match.str(1);
+        char buffer[32];
+        snprintf(buffer, sizeof(buffer), specifier.c_str(), frame_idx);
+        result.replace(match.position(1), match.length(1), buffer);
+    }
+
+    // Then replace all '%%' with '%'
+    size_t pos = 0;
+    while ((pos = result.find("%%", pos)) != std::string::npos) {
+        result.replace(pos, 2, "%");
+        pos += 1;
+    }
+    return result;
+}
+
+bool save_results(const SDCliParams& cli_params,
+                  const SDContextParams& ctx_params,
+                  const SDGenerationParams& gen_params,
+                  sd_image_t* results,
+                  int num_results) {
+    if (results == nullptr || num_results <= 0) {
+        return false;
+    }
+
+    namespace fs      = std::filesystem;
+    fs::path out_path = cli_params.output_path;
+
+    if (!out_path.parent_path().empty()) {
+        std::error_code ec;
+        fs::create_directories(out_path.parent_path(), ec);
+        if (ec) {
+            LOG_ERROR("failed to create directory '%s': %s",
+                      out_path.parent_path().string().c_str(), ec.message().c_str());
+            return false;
+        }
+    }
+
+    fs::path base_path = out_path;
+    fs::path ext       = out_path.has_extension() ? out_path.extension() : fs::path{};
+    if (!ext.empty())
+        base_path.replace_extension();
+
+    std::string ext_lower = ext.string();
+    std::transform(ext_lower.begin(), ext_lower.end(), ext_lower.begin(), ::tolower);
+    bool is_jpg = (ext_lower == ".jpg" || ext_lower == ".jpeg" || ext_lower == ".jpe");
+
+    int output_begin_idx = cli_params.output_begin_idx;
+    if (output_begin_idx < 0) {
+        output_begin_idx = 0;
+    }
+
+    auto write_image = [&](const fs::path& path, int idx) {
+        const sd_image_t& img = results[idx];
+        if (!img.data)
+            return;
+
+        std::string params = get_image_params(cli_params, ctx_params, gen_params, gen_params.seed + idx);
+        int ok             = 0;
+        if (is_jpg) {
+            ok = stbi_write_jpg(path.string().c_str(), img.width, img.height, img.channel, img.data, 90, params.c_str());
+        } else {
+            ok = stbi_write_png(path.string().c_str(), img.width, img.height, img.channel, img.data, 0, params.c_str());
+        }
+        LOG_INFO("save result image %d to '%s' (%s)", idx, path.string().c_str(), ok ? "success" : "failure");
+    };
+
+    if (std::regex_search(cli_params.output_path, format_specifier_regex)) {
+        if (!is_jpg && ext_lower != ".png")
+            ext = ".png";
+        fs::path pattern = base_path;
+        pattern += ext;
+
+        for (int i = 0; i < num_results; ++i) {
+            fs::path img_path = format_frame_idx(pattern.string(), output_begin_idx + i);
+            write_image(img_path, i);
+        }
+        return true;
+    }
+
+    if (cli_params.mode == VID_GEN && num_results > 1) {
+        if (ext_lower != ".avi")
+            ext = ".avi";
+        fs::path video_path = base_path;
+        video_path += ext;
+        create_mjpg_avi_from_sd_images(video_path.string().c_str(), results, num_results, gen_params.fps);
+        LOG_INFO("save result MJPG AVI video to '%s'", video_path.string().c_str());
+        return true;
+    }
+
+    if (!is_jpg && ext_lower != ".png")
+        ext = ".png";
+
+    
+#ifdef SD_EXAMPLES_IMG2IMG_REPEAT
+    fs::path base_path_repeat = base_path + "-" + std::to_string(glove_recurrent_var.count);
+    if (glove_recurrent_var.l_img2img_sequence && num_results == 1) {
+        int i = 0;
+        fs::path img_path = base_path_repeat;
+        img_path += ext;
+        write_image(img_path, 0);
+
+        sd_image_t* result_cropped = crop(results[i], glove_parametrization.get_images_sequence_params().get_crop().left, glove_parametrization.get_images_sequence_params().get_crop().right, glove_parametrization.get_images_sequence_params().get_crop().up, glove_parametrization.get_images_sequence_params().get_crop().bottom);
+        results[i]                 = *result_cropped;
+        delete result_cropped;
+    }
+#endif
+
+#ifdef SD_EXAMPLES_GLOVE_GUI
+    GlvApp::get_progression("Result")->set_message("Saving images");
+    SlvProgressionQt& p = *GlvApp::get_progression("Result");
+    for (p = 0; p << num_results; p++) {
+        int i = p;
+#else
+    for (int i = 0; i < num_results; i++) {
+#endif
+        fs::path img_path = base_path;
+        if (num_results > 1) {
+            img_path += "_" + std::to_string(output_begin_idx + i);
+        }
+        img_path += ext;
+        write_image(img_path, i);
+    }
+
+    return true;
+}
+
+
 int main(int argc, char* argv[]) {
 
 #ifdef SD_EXAMPLES_GLOVE_GUI
@@ -377,11 +515,6 @@ int main(int argc, char* argv[]) {
     GLOVE_APP_MENU_LICENSE_ADD("Qt", "LGPLv3", "Cross-platform application development framework for creating graphical user interfaces", "https://www.qt.io/");
     GLOVE_APP_PARAM(GlvSdParams);
 
-    if (argc > 1 && std::string(argv[1]) == "--version") {
-        std::cout << version_string() << "\n";
-        return EXIT_SUCCESS;
-    }
-
 #ifdef SD_EXAMPLES_IMG2IMG_REPEAT
     if (glove_parametrization.get_generation_options().get_image_video_input_params().get_init_img().is_equivalent(glove_parametrization.get_CLI_options().get_output())) {
         if (!glove_recurrent_var.l_img2img_sequence) {
@@ -392,6 +525,11 @@ int main(int argc, char* argv[]) {
 #endif
 
 #endif
+
+    if (argc > 1 && std::string(argv[1]) == "--version") {
+        std::cout << version_string() << "\n";
+        return EXIT_SUCCESS;
+    }
 
     SDCliParams cli_params;
     SDContextParams ctx_params;
@@ -690,7 +828,7 @@ int main(int argc, char* argv[]) {
                     gen_params.pm_style_strength,
                 },  // pm_params
                 ctx_params.vae_tiling_params,
-                gen_params.easycache_params,
+                gen_params.cache_params,
             };
 
             results     = generate_image(sd_ctx, &img_gen_params);
@@ -715,7 +853,7 @@ int main(int argc, char* argv[]) {
                 gen_params.seed,
                 gen_params.video_frames,
                 gen_params.vace_strength,
-                gen_params.easycache_params,
+                gen_params.cache_params,
             };
 
             results = generate_video(sd_ctx, &vid_gen_params, &num_results);
@@ -767,95 +905,8 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // create directory if not exists
-    {
-        const fs::path out_path = cli_params.output_path;
-        if (const fs::path out_dir = out_path.parent_path(); !out_dir.empty()) {
-            std::error_code ec;
-            fs::create_directories(out_dir, ec);  // OK if already exists
-            if (ec) {
-                LOG_ERROR("failed to create directory '%s': %s",
-                          out_dir.string().c_str(), ec.message().c_str());
-                return 1;
-            }
-        }
-    }
-
-    std::string base_path;
-    std::string file_ext;
-    std::string file_ext_lower;
-    bool is_jpg;
-    size_t last_dot_pos   = cli_params.output_path.find_last_of(".");
-    size_t last_slash_pos = std::min(cli_params.output_path.find_last_of("/"),
-                                     cli_params.output_path.find_last_of("\\"));
-    if (last_dot_pos != std::string::npos && (last_slash_pos == std::string::npos || last_dot_pos > last_slash_pos)) {  // filename has extension
-        base_path = cli_params.output_path.substr(0, last_dot_pos);
-        file_ext = file_ext_lower = cli_params.output_path.substr(last_dot_pos);
-        std::transform(file_ext.begin(), file_ext.end(), file_ext_lower.begin(), ::tolower);
-        is_jpg = (file_ext_lower == ".jpg" || file_ext_lower == ".jpeg" || file_ext_lower == ".jpe");
-    } else {
-        base_path = cli_params.output_path;
-        file_ext = file_ext_lower = "";
-        is_jpg                    = false;
-    }
-
-    if (cli_params.mode == VID_GEN && num_results > 1) {
-        std::string vid_output_path = cli_params.output_path;
-        if (file_ext_lower == ".png") {
-            vid_output_path = base_path + ".avi";
-        }
-        create_mjpg_avi_from_sd_images(vid_output_path.c_str(), results, num_results, gen_params.fps);
-        LOG_INFO("save result MJPG AVI video to '%s'\n", vid_output_path.c_str());
-    } else {
-        // appending ".png" to absent or unknown extension
-        if (!is_jpg && file_ext_lower != ".png") {
-            base_path += file_ext;
-            file_ext = ".png";
-        }
-#ifdef SD_EXAMPLES_GLOVE_GUI
-        GlvApp::get_progression("Result")->set_message("Saving images");
-        SlvProgressionQt& p = *GlvApp::get_progression("Result");
-        for (p = 0; p << num_results; p++) {
-            int i = p;
-#else
-        for (int i = 0; i < num_results; i++) {
-#endif
-            if (results[i].data == nullptr) {
-                continue;
-            }
-            int write_ok;
-            std::string final_image_path = i > 0 ? base_path + "_" + std::to_string(i + 1) + file_ext : base_path + file_ext;
-
-#ifdef SD_EXAMPLES_IMG2IMG_REPEAT
-            if (glove_recurrent_var.l_img2img_sequence) {
-                std::string base_path2        = base_path + "-" + std::to_string(glove_recurrent_var.count);
-                std::string final_image_path2 = i > 0 ? base_path2 + "_" + std::to_string(i + 1) + file_ext : base_path2 + file_ext;
-                if (is_jpg) {
-                    stbi_write_jpg(final_image_path2.c_str(), results[i].width, results[i].height, results[i].channel,
-                                   results[i].data, 90, get_image_params(cli_params, ctx_params, gen_params, gen_params.seed + i).c_str());
-                    printf("save result JPEG image to '%s'\n", final_image_path2.c_str());
-                } else {
-                    stbi_write_png(final_image_path2.c_str(), results[i].width, results[i].height, results[i].channel,
-                                   results[i].data, 0, get_image_params(cli_params, ctx_params, gen_params, gen_params.seed + i).c_str());
-                    printf("save result PNG image to '%s'\n", final_image_path2.c_str());
-                }
-
-                sd_image_t* result_cropped = crop(results[i], glove_parametrization.get_images_sequence_params().get_crop().left, glove_parametrization.get_images_sequence_params().get_crop().right, glove_parametrization.get_images_sequence_params().get_crop().up, glove_parametrization.get_images_sequence_params().get_crop().bottom);
-                results[i]                 = *result_cropped;
-                delete result_cropped;
-            }
-#endif
-
-            if (is_jpg) {
-                write_ok = stbi_write_jpg(final_image_path.c_str(), results[i].width, results[i].height, results[i].channel,
-                                          results[i].data, 90, get_image_params(cli_params, ctx_params, gen_params, gen_params.seed + i).c_str());
-                LOG_INFO("save result JPEG image to '%s' (%s)", final_image_path.c_str(), write_ok == 0 ? "failure" : "success");
-            } else {
-                write_ok = stbi_write_png(final_image_path.c_str(), results[i].width, results[i].height, results[i].channel,
-                                          results[i].data, 0, get_image_params(cli_params, ctx_params, gen_params, gen_params.seed + i).c_str());
-                LOG_INFO("save result PNG image to '%s' (%s)", final_image_path.c_str(), write_ok == 0 ? "failure" : "success");
-            }
-        }
+    if (!save_results(cli_params, ctx_params, gen_params, results, num_results)) {
+        return 1;
     }
 
     for (int i = 0; i < num_results; i++) {
