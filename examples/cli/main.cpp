@@ -499,27 +499,8 @@ bool save_results(const SDCliParams& cli_params,
 int main(int argc, char* argv[]) {
 
 #ifdef SD_EXAMPLES_GLOVE_GUI
-    GlvApp::get_progression("Model");
-    GlvApp::get_progression("clip_l");
-    GlvApp::get_progression("clip_g");
-    GlvApp::get_progression("t5xxl");
-    GlvApp::get_progression("diffusion-model");
-    GlvApp::get_progression("VAE");
-    GlvApp::get_progression("LoRA");
-    GlvApp::get_progression("Batch");
-    GlvApp::get_progression("Generating image")->set_recurrent(true);
-    GlvApp::get_progression("Decoding");
-    GlvApp::get_progression("Result");
-    GlvApp::get_progression("Decoding latent video");
-
     RecurrentStruct glove_recurrent_var;
-    GLOVE_APP_TITLE("stable-diffusion.cpp CLI-GUI");
-    GLOVE_APP_MENU_HELP(true);
-    GLOVE_APP_MENU_ABOUT(version_string());
-    GLOVE_APP_MENU_LICENSE_ADD("stable-diffusion.cpp", "MIT", "Diffusion model(SD,Flux,Wan,Qwen Image,Z-Image,...) inference in pure C/C++ ", "https://github.com/leejet/stable-diffusion.cpp");
-    GLOVE_APP_MENU_LICENSE_ADD("ggml", "MIT", "Tensor library for machine learning", "https://github.com/ggml-org/ggml");
-    GLOVE_APP_MENU_LICENSE_ADD("Qt", "LGPLv3", "Cross-platform application development framework for creating graphical user interfaces", "https://www.qt.io/");
-    GLOVE_APP_MENU_LICENSE_ADD("Glove", "GPLv3", "C++ Qt library for easy graphical user interfaces ", "https://github.com/piallai/glove");
+    glove_app_init();
     GLOVE_APP_PARAM(GlvSdParams);
 
 #ifdef SD_EXAMPLES_IMG2IMG_REPEAT
