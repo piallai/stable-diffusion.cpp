@@ -21,7 +21,7 @@
 
 #define GLOVE_VERSION_MAJOR 0
 #define GLOVE_VERSION_MINOR 8
-#define GLOVE_VERSION_PATCH 0
+#define GLOVE_VERSION_PATCH 1
 
 #ifndef GLOVE_DISABLE_QT
 #define OPTION_ENABLE_SLV_QT_PROGRESS 1
@@ -16436,10 +16436,16 @@ private:
 
     //mini_offset is used if table_view is itself a delegate. Needed for some reason, otherwise unnecessary scrollbars can appear
     //Tweak parameters. Best case would be not to need them (ie = 0)
-    glvm_staticVariable(const, int, mini_offset_x, 2);
-    glvm_staticVariable(const, int, mini_offset_y, 2);
-    glvm_staticVariable(const, int, mini_offset_with_delegate_x, 2);
-    glvm_staticVariable(const, int, mini_offset_with_delegate_y, 2);
+#if QT_VERSION < QT_VERSION_CHECK(6, 10, 0)
+#define OFFSET_TWEAK 2
+#else
+#define OFFSET_TWEAK 4
+#endif
+    glvm_staticVariable(const, int, mini_offset_x, OFFSET_TWEAK);
+    glvm_staticVariable(const, int, mini_offset_y, OFFSET_TWEAK);
+    glvm_staticVariable(const, int, mini_offset_with_delegate_x, OFFSET_TWEAK);
+    glvm_staticVariable(const, int, mini_offset_with_delegate_y, OFFSET_TWEAK);
+#undef OFFSET_TWEAK
 
 public:
 
@@ -27735,50 +27741,61 @@ inline bool GlvParametersWidget_base::filter_parameters(std::string _filter, boo
 	} else if (layout_type == LayoutType::Grid) {
 
 		for (int i = 0; i < grid_layout->rowCount(); i++) {
-			QLabel* parameter_label = dynamic_cast<QLabel*>(grid_layout->itemAtPosition(i, 0)->widget());
-			if (parameter_label) {
-				GlvWidget_base* widget_base = dynamic_cast<GlvWidget_base*>(grid_layout->itemAtPosition(i, 1)->widget());
-				GlvParametersWidget_base* parametrization_widget = dynamic_cast<GlvParametersWidget_base*>(widget_base->get_data_widget());
-				if (parametrization_widget) {
+			QLayoutItem* layout_item_data = grid_layout->itemAtPosition(i, 1);
+			if (layout_item_data) {
+				GlvWidget_base* widget_base = dynamic_cast<GlvWidget_base*>(layout_item_data->widget());
+				if (widget_base) {
 
-					bool l_all_filtered_rec = parametrization_widget->filter_parameters(_filter, _l_exact_match, _l_set_visible_only);
-					if (!l_all_filtered_rec) {
-						l_all_filtered = false;
+					QLabel* parameter_label = NULL;// Check if parameter label exists for parametrization widget
+					QLayoutItem* layout_item_label = grid_layout->itemAtPosition(i, 0);
+					if (layout_item_label) {
+						parameter_label = dynamic_cast<QLabel*>(layout_item_label->widget());
 					}
-					if (!_l_set_visible_only || !l_all_filtered_rec) {
-						parameter_label->setVisible(!l_all_filtered_rec);
-						parametrization_widget->setVisible(!l_all_filtered_rec);
-						if (!l_all_filtered_rec && !_filter.empty()) {
-							parametrization_widget->setChecked(true);// open the parametrization widget
+
+					GlvParametersWidget_base* parametrization_widget = dynamic_cast<GlvParametersWidget_base*>(widget_base->get_data_widget());
+					if (parametrization_widget) {
+
+						bool l_all_filtered_rec = parametrization_widget->filter_parameters(_filter, _l_exact_match, _l_set_visible_only);
+						if (!l_all_filtered_rec) {
+							l_all_filtered = false;
 						}
-						if (grid_layout->columnCount() == 3) {// if optional widget
-							QLayoutItem* layout_item = grid_layout->itemAtPosition(i, 2);
-							if (layout_item) layout_item->widget()->setVisible(!l_all_filtered_rec);
+						if (!_l_set_visible_only || !l_all_filtered_rec) {
+							if (parameter_label) {
+								parameter_label->setVisible(!l_all_filtered_rec);
+							}
+							parametrization_widget->setVisible(!l_all_filtered_rec);
+							if (!l_all_filtered_rec && !_filter.empty()) {
+								parametrization_widget->setChecked(true);// open the parametrization widget
+							}
+							if (grid_layout->columnCount() == 3) {// if optional widget
+								QLayoutItem* layout_item = grid_layout->itemAtPosition(i, 2);
+								if (layout_item) layout_item->widget()->setVisible(!l_all_filtered_rec);
+							}
 						}
-					}
-					
-				} else {
-					std::string name = parameter_label->text().toStdString();
-					std::string alias = parameter_label->toolTip().toStdString();
-					bool l_found;
-					if (!_l_exact_match) {
-						l_found = (name.find(_filter) != std::string::npos);
-						l_found |= (alias.find(_filter) != std::string::npos);
+
 					} else {
-						l_found = (name == _filter);
-						l_found |= (alias == _filter);
-					}
-					if (!_l_set_visible_only || l_found) {
-						parameter_label->setVisible(l_found);
-						for (int j = 1; j < grid_layout->columnCount(); j++) {
-							QLayoutItem* layout_item = grid_layout->itemAtPosition(i, j);
-							if (layout_item) layout_item->widget()->setVisible(l_found);
+						std::string name = parameter_label->text().toStdString();
+						std::string alias = parameter_label->toolTip().toStdString();
+						bool l_found;
+						if (!_l_exact_match) {
+							l_found = (name.find(_filter) != std::string::npos);
+							l_found |= (alias.find(_filter) != std::string::npos);
+						} else {
+							l_found = (name == _filter);
+							l_found |= (alias == _filter);
 						}
+						if (!_l_set_visible_only || l_found) {
+							parameter_label->setVisible(l_found);
+							for (int j = 1; j < grid_layout->columnCount(); j++) {
+								QLayoutItem* layout_item = grid_layout->itemAtPosition(i, j);
+								if (layout_item) layout_item->widget()->setVisible(l_found);
+							}
+						}
+						if (l_found) l_all_filtered = false;
 					}
-					if (l_found) l_all_filtered = false;
 				}
-
 			}
+
 		}
 
 	}
