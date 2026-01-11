@@ -14,6 +14,8 @@ glvm_SlvEnum(Prediction, eps, v, edm_v, sd3_flow, flux_flow);
 glvm_SlvEnum_named(LoraApplyMode, Auto, "auto", immediately, "immediately", at_runtime, "at_runtime");
 glvm_SlvEnum(Scheduler, discrete, karras, exponential, ays, gits, smoothstep, sgm_uniform, simple, kl_optimal, lcm);
 glvm_SlvEnum(Preview, none, proj, tae, vae);
+glvm_SlvEnum_named(CacheMode, easycache, "easycache", ucache, "ucache", dbcache, "dbcache", taylorseer, "taylorseer", cache_dit, "cache-dit")
+glvm_SlvEnum(CachePreset, slow, medium, fast, ultra)
 
 glvm_parametrization(GlvSdParamsPhotomaker, "Photomaker params",
     pm_id_embed_path, SlvFile, "--pm-id-embed-path", "path to PHOTOMAKER v2 id embed", SlvFile(SlvFile::IO::Read),
@@ -180,15 +182,21 @@ glvm_parametrization(GlvSdContextOptions, "Context options",
     context_options_advanced, GlvSdContextOptionsAdvanced, "Advanced", "", GlvSdContextOptionsAdvanced()
 )
 
+glvm_parametrization(GlvSdCacheParams, "Cache params",
+    cache_mode, CacheMode, "--cache-mode", "caching method: 'easycache' (DiT), 'ucache' (UNET), 'dbcache'/'taylorseer'/'cache-dit' (DiT block-level)", CacheMode::easycache,
+    cache_option, std::string, "--cache-option", "named cache params (key=value format, comma-separated). easycache/ucache:\nthreshold=,start=,end=,decay=,relative=,reset=; dbcache/taylorseer/cache-dit: Fn=,Bn=,threshold=,warmup=. Examples:\n\"threshold=0.25\" or \"threshold=1.5,reset=0\"", {},
+    cache_preset, CachePreset, "--cache-preset", "cache-dit preset: 'slow'/'s', 'medium'/'m', 'fast'/'f', 'ultra'/'u'", CachePreset::medium
+)
+
 glvm_parametrization(GlvSdGenerationOptionsAdvanced, "Generation options advanced",
     clip_skip, int, "--clip-skip", "ignore last layers of CLIP network; 1 ignores none, 2 ignores one layer (default: -1) \n<= 0 represents unspecified, will be 1 for SD1.x, 2 for SD2.x", -1,
     moe_boundary, float, "--moe-boundary", "timestep boundary for Wan2.2 MoE model. (default: 0.875). Only enabled if `--high-noise-steps` is set to -1", 0.875f,
     vace_strength, float, "--vace-strength", "wan vace strength", 1.f,
-    sigmas, std::vector<float>, "--sigmas", "custom sigma values for the sampler, comma-separated (e.g., \"14.61,7.8,3.5,0.0\").\nCan not set values for now. Parsing of values would be more convenient in a vector format such as: [14.61,7.8,3.5,0.0]. Alike skip layers.", {},
-    easycache, bool, "--easycache", "enable EasyCache for DiT models with optional \"threshold,start_percent,end_percent\" (default: 0.2,0.15,0.95)\nCan not set values for now. Parsing of values would be more convenient in a vector format such as: [0.2,0.15,0.95]. Alike skip layers.", false,
+    sigmas, std::vector<float>, "--sigmas", "custom sigma values for the sampler, comma-separated (e.g., \"14.61,7.8,3.5,0.0\").\nCan not set values for now. Parsing of values would be more convenient in a vector format such as: [14.61,7.8,3.5,0.0]. Alike skip layers.", {},    
     increase_ref_index, bool, "--increase-ref-index", "automatically increase the indices of references images based on the order they are listed (starting with 1).", false,
     sampling_method, SamplingMethod, "--sampling-method", "{euler, euler_a, heun, dpm2, dpm++2s_a, dpm++2m, dpm++2mv2, ipndm, ipndm_v, lcm, ddim_trailing, tcd} \nsampling method (default: 'euler_a')", SamplingMethod::euler_a,
     scheduler, Scheduler, "--scheduler", "denoiser sigma scheduler, one of [discrete, karras, exponential, ays, gits, smoothstep, sgm_uniform, simple, kl_optimal, lcm],\ndefault: discrete", Scheduler::discrete,
+    cache, GlvSdCacheParams, "Cache params", "", GlvSdCacheParams(),
     high_noise_params, GlvSdParamsHighNoise, "High noise", "", GlvSdParamsHighNoise()
 )
 
