@@ -1471,7 +1471,7 @@ struct SDGenerationParams {
                 return -1;
             }
             cache_mode = argv_to_utf8(index, argv);
-            if (cache_mode != "easycache" && cache_mode != "ucache" &&
+            if (cache_mode != "disabled" && cache_mode != "easycache" && cache_mode != "ucache" &&
                 cache_mode != "dbcache" && cache_mode != "taylorseer" && cache_mode != "cache-dit") {
                 fprintf(stderr, "error: invalid cache mode '%s', must be 'easycache', 'ucache', 'dbcache', 'taylorseer', or 'cache-dit'\n", cache_mode.c_str());
                 return -1;

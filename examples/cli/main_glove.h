@@ -14,7 +14,7 @@ glvm_SlvEnum(Prediction, eps, v, edm_v, sd3_flow, flux_flow);
 glvm_SlvEnum_named(LoraApplyMode, Auto, "auto", immediately, "immediately", at_runtime, "at_runtime");
 glvm_SlvEnum(Scheduler, discrete, karras, exponential, ays, gits, smoothstep, sgm_uniform, simple, kl_optimal, lcm);
 glvm_SlvEnum(Preview, none, proj, tae, vae);
-glvm_SlvEnum_named(CacheMode, easycache, "easycache", ucache, "ucache", dbcache, "dbcache", taylorseer, "taylorseer", cache_dit, "cache-dit");
+glvm_SlvEnum_named(CacheMode, disabled, "disabled", easycache, "easycache", ucache, "ucache", dbcache, "dbcache", taylorseer, "taylorseer", cache_dit, "cache-dit");
 glvm_SlvEnum(CachePreset, slow, medium, fast, ultra);
 glvm_SlvEnum_named(ScmPolicy, dynamic, "dynamic", static_, "static");
 
@@ -184,7 +184,7 @@ glvm_parametrization(GlvSdContextOptions, "Context options",
 )
 
 glvm_parametrization(GlvSdCacheParams, "Cache params",
-    cache_mode, CacheMode, "--cache-mode", "caching method: 'easycache' (DiT), 'ucache' (UNET), 'dbcache'/'taylorseer'/'cache-dit' (DiT block-level)", CacheMode::easycache,
+    cache_mode, CacheMode, "--cache-mode", "caching method: 'easycache' (DiT), 'ucache' (UNET), 'dbcache'/'taylorseer'/'cache-dit' (DiT block-level)", CacheMode::disabled,
     cache_option, std::string, "--cache-option", "named cache params (key=value format, comma-separated). easycache/ucache:\nthreshold=,start=,end=,decay=,relative=,reset=; dbcache/taylorseer/cache-dit: Fn=,Bn=,threshold=,warmup=. Examples:\n\"threshold=0.25\" or \"threshold=1.5,reset=0\"", {},
     cache_preset, CachePreset, "--cache-preset", "cache-dit preset: 'slow'/'s', 'medium'/'m', 'fast'/'f', 'ultra'/'u'", CachePreset::medium,
     scm_mask, std::string, "--scm-mask", "SCM steps mask for cache-dit: comma-separated 0/1 (e.g., \"1,1,1,0,0,1,0,0,1,0\") - 1=compute, 0=can cache", {},
