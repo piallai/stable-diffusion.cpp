@@ -92,9 +92,11 @@ endif()
 set(SD_LIB stable-diffusion)
 
 file(GLOB SD_LIB_SOURCES
-    "*.h"
-    "*.cpp"
-    "*.hpp"
+    "src/*.h"
+    "src/*.cpp"
+    "src/*.hpp"
+    "src/vocab/*.h"
+    "src/vocab/*.cpp"
 )
 
 if(SD_BUILD_EXAMPLES AND SD_EXAMPLES_GLOVE_GUI)
@@ -130,7 +132,7 @@ endif()
 message(STATUS "stable-diffusion.cpp commit ${SDCPP_BUILD_COMMIT}")
 
 set_property(
-  SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/version.cpp
+  SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/src/version.cpp
   APPEND PROPERTY COMPILE_DEFINITIONS
   SDCPP_BUILD_COMMIT=${SDCPP_BUILD_COMMIT} SDCPP_BUILD_VERSION=${SDCPP_BUILD_VERSION}
 )
@@ -202,6 +204,7 @@ endif()
 add_subdirectory(thirdparty)
 
 target_link_libraries(${SD_LIB} PUBLIC ggml zip)
+target_include_directories(${SD_LIB} PUBLIC . include)
 target_include_directories(${SD_LIB} PUBLIC . thirdparty)
 target_compile_features(${SD_LIB} PUBLIC c_std_11 cxx_std_17)
 
@@ -210,7 +213,7 @@ if (SD_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
 
-set(SD_PUBLIC_HEADERS stable-diffusion.h)
+set(SD_PUBLIC_HEADERS include/stable-diffusion.h)
 set_target_properties(${SD_LIB} PROPERTIES PUBLIC_HEADER "${SD_PUBLIC_HEADERS}")
 
 install(TARGETS ${SD_LIB} LIBRARY PUBLIC_HEADER)
