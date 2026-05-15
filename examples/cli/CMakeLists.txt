@@ -18,6 +18,17 @@ else()
 	add_executable(${TARGET} main.cpp)
 	target_link_libraries(${TARGET} PRIVATE stable-diffusion ${CMAKE_THREAD_LIBS_INIT})
 endif()
+
+if(SD_WEBP)
+    target_compile_definitions(${TARGET} PRIVATE SD_USE_WEBP)
+    target_link_libraries(${TARGET} PRIVATE webp libwebpmux)
+endif()
+if(SD_WEBM)
+    target_compile_definitions(${TARGET} PRIVATE SD_USE_WEBM)
+    target_link_libraries(${TARGET} PRIVATE webm)
+endif()
+
 target_compile_features(${TARGET} PUBLIC cxx_std_11 cxx_std_17)
 
 install(TARGETS ${TARGET} RUNTIME)
+

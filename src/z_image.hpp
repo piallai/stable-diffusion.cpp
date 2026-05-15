@@ -31,10 +31,6 @@ namespace ZImage {
             : head_dim(head_dim), num_heads(num_heads), num_kv_heads(num_kv_heads), qk_norm(qk_norm) {
             blocks["qkv"] = std::make_shared<Linear>(hidden_size, (num_heads + num_kv_heads * 2) * head_dim, false);
             float scale   = 1.f;
-#if GGML_USE_HIP
-            // Prevent NaN issues with certain ROCm setups
-            scale = 1.f / 16.f;
-#endif
             blocks["out"] = std::make_shared<Linear>(num_heads * head_dim, hidden_size, false, false, false, scale);
             if (qk_norm) {
                 blocks["q_norm"] = std::make_shared<RMSNorm>(head_dim);
@@ -42,15 +38,19 @@ namespace ZImage {
             }
         }
 
-        struct ggml_tensor* forward(GGMLRunnerContext* ctx,
-                                    struct ggml_tensor* x,
-                                    struct ggml_tensor* pe,
-                                    struct ggml_tensor* mask = nullptr) {
+        ggml_tensor* forward(GGMLRunnerContext* ctx,
+                             ggml_tensor* x,
+                             ggml_tensor* pe,
+                             ggml_tensor* mask = nullptr) {
             // x: [N, n_token, hidden_size]
             int64_t n_token = x->ne[1];
             int64_t N       = x->ne[2];
             auto qkv_proj   = std::dynamic_pointer_cast<Linear>(blocks["qkv"]);
             auto out_proj   = std::dynamic_pointer_cast<Linear>(blocks["out"]);
+
+            if (sd_backend_is(ctx->backend, "ROCm")) {
+                out_proj->set_scale(1.f / 16.f);
+            }
 
             auto qkv = qkv_proj->forward(ctx, x);                                                                            // [N, n_token, (num_heads + num_kv_heads*2)*head_dim]
             qkv      = ggml_reshape_4d(ctx->ggml_ctx, qkv, head_dim, num_heads + num_kv_heads * 2, qkv->ne[1], qkv->ne[2]);  // [N, n_token, num_heads + num_kv_heads*2, head_dim]
@@ -115,32 +115,34 @@ namespace ZImage {
 
             bool force_prec_f32 = false;
             float scale         = 1.f / 128.f;
-#ifdef SD_USE_VULKAN
-            force_prec_f32 = true;
-#endif
+
             // The purpose of the scale here is to prevent NaN issues in certain situations.
             // For example, when using CUDA but the weights are k-quants.
             blocks["w2"] = std::make_shared<Linear>(hidden_dim, dim, false, false, force_prec_f32, scale);
             blocks["w3"] = std::make_shared<Linear>(dim, hidden_dim, false);
         }
 
-        struct ggml_tensor* forward(GGMLRunnerContext* ctx, struct ggml_tensor* x) {
+        ggml_tensor* forward(GGMLRunnerContext* ctx, ggml_tensor* x) {
             auto w1 = std::dynamic_pointer_cast<Linear>(blocks["w1"]);
             auto w2 = std::dynamic_pointer_cast<Linear>(blocks["w2"]);
             auto w3 = std::dynamic_pointer_cast<Linear>(blocks["w3"]);
 
+            if (sd_backend_is(ctx->backend, "Vulkan")) {
+                w2->set_force_prec_f32(true);
+            }
+
             auto x1 = w1->forward(ctx, x);
             auto x3 = w3->forward(ctx, x);
-            x       = ggml_mul(ctx->ggml_ctx, ggml_silu(ctx->ggml_ctx, x1), x3);
+            x       = ggml_swiglu_split(ctx->ggml_ctx, x1, x3);
             x       = w2->forward(ctx, x);
 
             return x;
         }
     };
 
-    __STATIC_INLINE__ struct ggml_tensor* modulate(struct ggml_context* ctx,
-                                                   struct ggml_tensor* x,
-                                                   struct ggml_tensor* scale) {
+    __STATIC_INLINE__ ggml_tensor* modulate(ggml_context* ctx,
+                                            ggml_tensor* x,
+                                            ggml_tensor* scale) {
         // x: [N, L, C]
         // scale: [N, C]
         scale = ggml_reshape_3d(ctx, scale, scale->ne[0], 1, scale->ne[1]);  // [N, 1, C]
@@ -175,11 +177,11 @@ namespace ZImage {
             }
         }
 
-        struct ggml_tensor* forward(GGMLRunnerContext* ctx,
-                                    struct ggml_tensor* x,
-                                    struct ggml_tensor* pe,
-                                    struct ggml_tensor* mask        = nullptr,
-                                    struct ggml_tensor* adaln_input = nullptr) {
+        ggml_tensor* forward(GGMLRunnerContext* ctx,
+                             ggml_tensor* x,
+                             ggml_tensor* pe,
+                             ggml_tensor* mask        = nullptr,
+                             ggml_tensor* adaln_input = nullptr) {
             auto attention       = std::dynamic_pointer_cast<JointAttention>(blocks["attention"]);
             auto feed_forward    = std::dynamic_pointer_cast<FeedForward>(blocks["feed_forward"]);
             auto attention_norm1 = std::dynamic_pointer_cast<RMSNorm>(blocks["attention_norm1"]);
@@ -241,9 +243,9 @@ namespace ZImage {
             blocks["adaLN_modulation.1"] = std::make_shared<Linear>(MIN(hidden_size, ADALN_EMBED_DIM), hidden_size);
         }
 
-        struct ggml_tensor* forward(GGMLRunnerContext* ctx,
-                                    struct ggml_tensor* x,
-                                    struct ggml_tensor* c) {
+        ggml_tensor* forward(GGMLRunnerContext* ctx,
+                             ggml_tensor* x,
+                             ggml_tensor* c) {
             // x: [N, n_token, hidden_size]
             // c: [N, hidden_size]
             // return: [N, n_token, patch_size * patch_size * out_channels]
@@ -284,7 +286,7 @@ namespace ZImage {
     protected:
         ZImageParams z_image_params;
 
-        void init_params(struct ggml_context* ctx, const String2TensorStorage& tensor_storage_map = {}, const std::string prefix = "") override {
+        void init_params(ggml_context* ctx, const String2TensorStorage& tensor_storage_map = {}, const std::string prefix = "") override {
             params["cap_pad_token"] = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, z_image_params.hidden_size);
             params["x_pad_token"]   = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, z_image_params.hidden_size);
         }
@@ -346,74 +348,11 @@ namespace ZImage {
             blocks["final_layer"] = std::make_shared<FinalLayer>(z_image_params.hidden_size, z_image_params.patch_size, z_image_params.out_channels);
         }
 
-        struct ggml_tensor* pad_to_patch_size(GGMLRunnerContext* ctx,
-                                              struct ggml_tensor* x) {
-            int64_t W = x->ne[0];
-            int64_t H = x->ne[1];
-
-            int pad_h = (z_image_params.patch_size - H % z_image_params.patch_size) % z_image_params.patch_size;
-            int pad_w = (z_image_params.patch_size - W % z_image_params.patch_size) % z_image_params.patch_size;
-            x         = ggml_ext_pad(ctx->ggml_ctx, x, pad_w, pad_h, 0, 0, ctx->circular_x_enabled, ctx->circular_y_enabled);
-            return x;
-        }
-
-        struct ggml_tensor* patchify(struct ggml_context* ctx,
-                                     struct ggml_tensor* x) {
-            // x: [N, C, H, W]
-            // return: [N, h*w, patch_size*patch_size*C]
-            int64_t N = x->ne[3];
-            int64_t C = x->ne[2];
-            int64_t H = x->ne[1];
-            int64_t W = x->ne[0];
-            int64_t p = z_image_params.patch_size;
-            int64_t h = H / z_image_params.patch_size;
-            int64_t w = W / z_image_params.patch_size;
-
-            GGML_ASSERT(h * p == H && w * p == W);
-
-            x = ggml_reshape_4d(ctx, x, p, w, p, h * C * N);                 // [N*C*h, p, w, p]
-            x = ggml_cont(ctx, ggml_permute(ctx, x, 0, 2, 1, 3));            // [N*C*h, w, p, p]
-            x = ggml_reshape_4d(ctx, x, p * p, w * h, C, N);                 // [N, C, h*w, p*p]
-            x = ggml_cont(ctx, ggml_ext_torch_permute(ctx, x, 2, 0, 1, 3));  // [N, h*w, C, p*p]
-            x = ggml_reshape_3d(ctx, x, C * p * p, w * h, N);                // [N, h*w, p*p*C]
-            return x;
-        }
-
-        struct ggml_tensor* process_img(GGMLRunnerContext* ctx,
-                                        struct ggml_tensor* x) {
-            x = pad_to_patch_size(ctx, x);
-            x = patchify(ctx->ggml_ctx, x);
-            return x;
-        }
-
-        struct ggml_tensor* unpatchify(struct ggml_context* ctx,
-                                       struct ggml_tensor* x,
-                                       int64_t h,
-                                       int64_t w) {
-            // x: [N, h*w, patch_size*patch_size*C]
-            // return: [N, C, H, W]
-            int64_t N = x->ne[2];
-            int64_t C = x->ne[0] / z_image_params.patch_size / z_image_params.patch_size;
-            int64_t H = h * z_image_params.patch_size;
-            int64_t W = w * z_image_params.patch_size;
-            int64_t p = z_image_params.patch_size;
-
-            GGML_ASSERT(C * p * p == x->ne[0]);
-
-            x = ggml_reshape_4d(ctx, x, C, p * p, w * h, N);                 // [N, h*w, p*p, C]
-            x = ggml_cont(ctx, ggml_ext_torch_permute(ctx, x, 1, 2, 0, 3));  // [N, C, h*w, p*p]
-            x = ggml_reshape_4d(ctx, x, p, p, w, h * C * N);                 // [N*C*h, w, p, p]
-            x = ggml_cont(ctx, ggml_permute(ctx, x, 0, 2, 1, 3));            // [N*C*h, p, w, p]
-            x = ggml_reshape_4d(ctx, x, W, H, C, N);                         // [N, C, h*p, w*p]
-
-            return x;
-        }
-
-        struct ggml_tensor* forward_core(GGMLRunnerContext* ctx,
-                                         struct ggml_tensor* x,
-                                         struct ggml_tensor* timestep,
-                                         struct ggml_tensor* context,
-                                         struct ggml_tensor* pe) {
+        ggml_tensor* forward_core(GGMLRunnerContext* ctx,
+                                  ggml_tensor* x,
+                                  ggml_tensor* timestep,
+                                  ggml_tensor* context,
+                                  ggml_tensor* pe) {
             auto x_embedder     = std::dynamic_pointer_cast<Linear>(blocks["x_embedder"]);
             auto t_embedder     = std::dynamic_pointer_cast<TimestepEmbedder>(blocks["t_embedder"]);
             auto cap_embedder_0 = std::dynamic_pointer_cast<RMSNorm>(blocks["cap_embedder.0"]);
@@ -432,6 +371,9 @@ namespace ZImage {
 
             auto txt = cap_embedder_1->forward(ctx, cap_embedder_0->forward(ctx, context));  // [N, n_txt_token, hidden_size]
             auto img = x_embedder->forward(ctx, x);                                          // [N, n_img_token, hidden_size]
+            sd::ggml_graph_cut::mark_graph_cut(txt, "z_image.prelude", "txt");
+            sd::ggml_graph_cut::mark_graph_cut(img, "z_image.prelude", "img");
+            sd::ggml_graph_cut::mark_graph_cut(t_emb, "z_image.prelude", "t_emb");
 
             int64_t n_txt_pad_token = Rope::bound_mod(static_cast<int>(n_txt_token), SEQ_MULTI_OF);
             if (n_txt_pad_token > 0) {
@@ -454,20 +396,24 @@ namespace ZImage {
                 auto block = std::dynamic_pointer_cast<JointTransformerBlock>(blocks["context_refiner." + std::to_string(i)]);
 
                 txt = block->forward(ctx, txt, txt_pe, nullptr, nullptr);
+                sd::ggml_graph_cut::mark_graph_cut(txt, "z_image.context_refiner." + std::to_string(i), "txt");
             }
 
             for (int i = 0; i < z_image_params.num_refiner_layers; i++) {
                 auto block = std::dynamic_pointer_cast<JointTransformerBlock>(blocks["noise_refiner." + std::to_string(i)]);
 
                 img = block->forward(ctx, img, img_pe, nullptr, t_emb);
+                sd::ggml_graph_cut::mark_graph_cut(img, "z_image.noise_refiner." + std::to_string(i), "img");
             }
 
             auto txt_img = ggml_concat(ctx->ggml_ctx, txt, img, 1);  // [N, n_txt_token + n_txt_pad_token + n_img_token + n_img_pad_token, hidden_size]
+            sd::ggml_graph_cut::mark_graph_cut(txt_img, "z_image.prelude", "txt_img");
 
             for (int i = 0; i < z_image_params.num_layers; i++) {
                 auto block = std::dynamic_pointer_cast<JointTransformerBlock>(blocks["layers." + std::to_string(i)]);
 
                 txt_img = block->forward(ctx, txt_img, pe, nullptr, t_emb);
+                sd::ggml_graph_cut::mark_graph_cut(txt_img, "z_image.layers." + std::to_string(i), "txt_img");
             }
 
             txt_img = final_layer->forward(ctx, txt_img, t_emb);  // [N, n_txt_token + n_txt_pad_token + n_img_token + n_img_pad_token, ph*pw*C]
@@ -477,12 +423,12 @@ namespace ZImage {
             return img;
         }
 
-        struct ggml_tensor* forward(GGMLRunnerContext* ctx,
-                                    struct ggml_tensor* x,
-                                    struct ggml_tensor* timestep,
-                                    struct ggml_tensor* context,
-                                    struct ggml_tensor* pe,
-                                    std::vector<ggml_tensor*> ref_latents = {}) {
+        ggml_tensor* forward(GGMLRunnerContext* ctx,
+                             ggml_tensor* x,
+                             ggml_tensor* timestep,
+                             ggml_tensor* context,
+                             ggml_tensor* pe,
+                             std::vector<ggml_tensor*> ref_latents = {}) {
             // Forward pass of DiT.
             // x: [N, C, H, W]
             // timestep: [N,]
@@ -495,27 +441,22 @@ namespace ZImage {
             int64_t C = x->ne[2];
             int64_t N = x->ne[3];
 
-            auto img             = process_img(ctx, x);
+            int patch_size = z_image_params.patch_size;
+
+            auto img             = DiT::pad_and_patchify(ctx, x, patch_size, patch_size, false);
             uint64_t n_img_token = img->ne[1];
 
             if (ref_latents.size() > 0) {
                 for (ggml_tensor* ref : ref_latents) {
-                    ref = process_img(ctx, ref);
+                    ref = DiT::pad_and_patchify(ctx, ref, patch_size, patch_size, false);
                     img = ggml_concat(ctx->ggml_ctx, img, ref, 1);
                 }
             }
 
-            int64_t h_len = ((H + (z_image_params.patch_size / 2)) / z_image_params.patch_size);
-            int64_t w_len = ((W + (z_image_params.patch_size / 2)) / z_image_params.patch_size);
-
             auto out = forward_core(ctx, img, timestep, context, pe);
 
-            out = ggml_ext_slice(ctx->ggml_ctx, out, 1, 0, n_img_token);  // [N, n_img_token, ph*pw*C]
-            out = unpatchify(ctx->ggml_ctx, out, h_len, w_len);           // [N, C, H + pad_h, W + pad_w]
-
-            // slice
-            out = ggml_ext_slice(ctx->ggml_ctx, out, 1, 0, H);  // [N, C, H, W + pad_w]
-            out = ggml_ext_slice(ctx->ggml_ctx, out, 0, 0, W);  // [N, C, H, W]
+            out = ggml_ext_slice(ctx->ggml_ctx, out, 1, 0, n_img_token);                              // [N, n_img_token, ph*pw*C]
+            out = DiT::unpatchify_and_crop(ctx->ggml_ctx, out, H, W, patch_size, patch_size, false);  // [N, C, H, W]
 
             out = ggml_ext_scale(ctx->ggml_ctx, out, -1.f);
 
@@ -545,24 +486,25 @@ namespace ZImage {
             return "z_image";
         }
 
-        void get_param_tensors(std::map<std::string, struct ggml_tensor*>& tensors, const std::string prefix) {
+        void get_param_tensors(std::map<std::string, ggml_tensor*>& tensors, const std::string prefix) {
             z_image.get_param_tensors(tensors, prefix);
         }
 
-        struct ggml_cgraph* build_graph(struct ggml_tensor* x,
-                                        struct ggml_tensor* timesteps,
-                                        struct ggml_tensor* context,
-                                        std::vector<ggml_tensor*> ref_latents = {},
-                                        bool increase_ref_index               = false) {
+        ggml_cgraph* build_graph(const sd::Tensor<float>& x_tensor,
+                                 const sd::Tensor<float>& timesteps_tensor,
+                                 const sd::Tensor<float>& context_tensor,
+                                 const std::vector<sd::Tensor<float>>& ref_latents_tensor = {},
+                                 bool increase_ref_index                                  = false) {
+            ggml_cgraph* gf        = new_graph_custom(Z_IMAGE_GRAPH_SIZE);
+            ggml_tensor* x         = make_input(x_tensor);
+            ggml_tensor* timesteps = make_input(timesteps_tensor);
             GGML_ASSERT(x->ne[3] == 1);
-            struct ggml_cgraph* gf = new_graph_custom(Z_IMAGE_GRAPH_SIZE);
-
-            x         = to_backend(x);
-            context   = to_backend(context);
-            timesteps = to_backend(timesteps);
-
-            for (int i = 0; i < ref_latents.size(); i++) {
-                ref_latents[i] = to_backend(ref_latents[i]);
+            GGML_ASSERT(!context_tensor.empty());
+            ggml_tensor* context = make_input(context_tensor);
+            std::vector<ggml_tensor*> ref_latents;
+            ref_latents.reserve(ref_latents_tensor.size());
+            for (const auto& ref_latent_tensor : ref_latents_tensor) {
+                ref_latents.push_back(make_input(ref_latent_tensor));
             }
 
             pe_vec      = Rope::gen_z_image_pe(static_cast<int>(x->ne[1]),
@@ -586,66 +528,71 @@ namespace ZImage {
             set_backend_tensor_data(pe, pe_vec.data());
             auto runner_ctx = get_context();
 
-            struct ggml_tensor* out = z_image.forward(&runner_ctx,
-                                                      x,
-                                                      timesteps,
-                                                      context,
-                                                      pe,
-                                                      ref_latents);
+            ggml_tensor* out = z_image.forward(&runner_ctx,
+                                               x,
+                                               timesteps,
+                                               context,
+                                               pe,
+                                               ref_latents);
 
             ggml_build_forward_expand(gf, out);
 
             return gf;
         }
 
-        bool compute(int n_threads,
-                     struct ggml_tensor* x,
-                     struct ggml_tensor* timesteps,
-                     struct ggml_tensor* context,
-                     std::vector<ggml_tensor*> ref_latents = {},
-                     bool increase_ref_index               = false,
-                     struct ggml_tensor** output           = nullptr,
-                     struct ggml_context* output_ctx       = nullptr) {
+        sd::Tensor<float> compute(int n_threads,
+                                  const sd::Tensor<float>& x,
+                                  const sd::Tensor<float>& timesteps,
+                                  const sd::Tensor<float>& context,
+                                  const std::vector<sd::Tensor<float>>& ref_latents = {},
+                                  bool increase_ref_index                           = false) {
             // x: [N, in_channels, h, w]
             // timesteps: [N, ]
             // context: [N, max_position, hidden_size]
-            auto get_graph = [&]() -> struct ggml_cgraph* {
+            auto get_graph = [&]() -> ggml_cgraph* {
                 return build_graph(x, timesteps, context, ref_latents, increase_ref_index);
             };
 
-            return GGMLRunner::compute(get_graph, n_threads, false, output, output_ctx);
+            return restore_trailing_singleton_dims(GGMLRunner::compute<float>(get_graph, n_threads, false), x.dim());
         }
 
         void test() {
-            struct ggml_init_params params;
+            ggml_init_params params;
             params.mem_size   = static_cast<size_t>(1024 * 1024) * 1024;  // 1GB
             params.mem_buffer = nullptr;
             params.no_alloc   = false;
 
-            struct ggml_context* work_ctx = ggml_init(params);
-            GGML_ASSERT(work_ctx != nullptr);
+            ggml_context* ctx = ggml_init(params);
+            GGML_ASSERT(ctx != nullptr);
 
             {
-                // auto x = ggml_new_tensor_4d(work_ctx, GGML_TYPE_F32, 16, 16, 16, 1);
+                // auto x = ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 16, 16, 16, 1);
                 // ggml_set_f32(x, 0.01f);
-                auto x = load_tensor_from_file(work_ctx, "./z_image_x.bin");
-                print_ggml_tensor(x);
+                auto x = sd::load_tensor_from_file_as_tensor<float>("./z_image_x.bin");
+                print_sd_tensor(x);
 
                 std::vector<float> timesteps_vec(1, 0.f);
-                auto timesteps = vector_to_ggml_tensor(work_ctx, timesteps_vec);
+                auto timesteps = sd::Tensor<float>::from_vector(timesteps_vec);
 
-                // auto context = ggml_new_tensor_3d(work_ctx, GGML_TYPE_F32, 2560, 256, 1);
+                // auto context = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, 2560, 256, 1);
                 // ggml_set_f32(context, 0.01f);
-                auto context = load_tensor_from_file(work_ctx, "./z_image_context.bin");
-                print_ggml_tensor(context);
+                auto context = sd::load_tensor_from_file_as_tensor<float>("./z_image_context.bin");
+                print_sd_tensor(context);
 
-                struct ggml_tensor* out = nullptr;
+                sd::Tensor<float> out;
 
-                int64_t t0 = ggml_time_ms();
-                compute(8, x, timesteps, context, {}, false, &out, work_ctx);
-                int64_t t1 = ggml_time_ms();
+                int64_t t0   = ggml_time_ms();
+                auto out_opt = compute(8,
+                                       x,
+                                       timesteps,
+                                       context,
+                                       {},
+                                       false);
+                int64_t t1   = ggml_time_ms();
 
-                print_ggml_tensor(out);
+                GGML_ASSERT(!out_opt.empty());
+                out = std::move(out_opt);
+                print_sd_tensor(out);
                 LOG_DEBUG("z_image test done in %lldms", t1 - t0);
             }
         }

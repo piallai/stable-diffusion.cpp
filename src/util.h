@@ -6,7 +6,9 @@
 #include <string>
 #include <vector>
 
+#include "ggml-backend.h"
 #include "stable-diffusion.h"
+#include "tensor.hpp"
 
 #define SAFE_STR(s) ((s) ? (s) : "")
 #define BOOL_STR(b) ((b) ? "true" : "false")
@@ -29,24 +31,18 @@ std::string utf32_to_utf8(const std::u32string& utf32_str);
 std::u32string unicode_value_to_utf32(int unicode_value);
 // std::string sd_basename(const std::string& path);
 
-typedef struct {
-    uint32_t width;
-    uint32_t height;
-    uint32_t channel;
-    float* data;
-} sd_image_f32_t;
+sd_image_t tensor_to_sd_image(const sd::Tensor<float>& tensor, int frame_index = 0);
 
-void normalize_sd_image_f32_t(sd_image_f32_t image, float means[3], float stds[3]);
+sd::Tensor<float> sd_image_to_tensor(sd_image_t image,
+                                     int target_width  = -1,
+                                     int target_height = -1,
+                                     bool scale        = true);
 
-sd_image_f32_t sd_image_t_to_sd_image_f32_t(sd_image_t image);
-
-sd_image_f32_t resize_sd_image_f32_t(sd_image_f32_t image, int target_width, int target_height);
-
-sd_image_f32_t clip_preprocess(sd_image_f32_t image, int target_width, int target_height);
+sd::Tensor<float> clip_preprocess(const sd::Tensor<float>& image, int target_width, int target_height);
 
 class MmapWrapper {
 public:
-    static std::unique_ptr<MmapWrapper> create(const std::string& filename);
+    static std::unique_ptr<MmapWrapper> create(const std::string& filename, bool writable = false);
 
     virtual ~MmapWrapper() = default;
 
@@ -56,6 +52,7 @@ public:
     MmapWrapper& operator=(MmapWrapper&&)      = delete;
 
     const uint8_t* data() const { return static_cast<uint8_t*>(data_); }
+    uint8_t* writable_data() { return static_cast<uint8_t*>(data_); }
     size_t size() const { return size_; }
     bool copy_data(void* buf, size_t n, size_t offset) const;
 
@@ -69,6 +66,7 @@ protected:
 std::string path_join(const std::string& p1, const std::string& p2);
 std::vector<std::string> split_string(const std::string& str, char delimiter);
 void pretty_progress(int step, int steps, float time);
+void pretty_bytes_progress(int step, int steps, uint64_t bytes_processed, float elapsed_seconds);
 
 void log_printf(sd_log_level_t level, const char* file, int line, const char* format, ...);
 
@@ -85,6 +83,10 @@ preview_t sd_get_preview_mode();
 int sd_get_preview_interval();
 bool sd_should_preview_denoised();
 bool sd_should_preview_noisy();
+
+// test if the backend is a specific one, e.g. "CUDA", "ROCm", "Vulkan" etc.
+bool sd_backend_is(ggml_backend_t backend, const std::string& name);
+ggml_backend_t sd_get_default_backend();
 
 #ifdef SD_EXAMPLES_GLOVE_GUI
 #define GLOVE_ENABLE_JSON

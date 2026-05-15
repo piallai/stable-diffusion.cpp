@@ -1,8 +1,7 @@
 #ifndef __LTXV_HPP__
 #define __LTXV_HPP__
 
-#include "common.hpp"
-#include "ggml_extend.hpp"
+#include "common_block.hpp"
 
 namespace LTXV {
 
@@ -27,9 +26,9 @@ namespace LTXV {
                                                                      bias));
         }
 
-        struct ggml_tensor* forward(GGMLRunnerContext* ctx,
-                                    struct ggml_tensor* x,
-                                    bool causal = true) {
+        ggml_tensor* forward(GGMLRunnerContext* ctx,
+                             ggml_tensor* x,
+                             bool causal = true) {
             // x: [N*IC, ID, IH, IW]
             // result: [N*OC, OD, OH, OW]
             auto conv = std::dynamic_pointer_cast<Conv3d>(blocks["conv"]);

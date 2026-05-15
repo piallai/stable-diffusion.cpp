@@ -27,11 +27,11 @@ public:
         blocks["conv5"] = std::shared_ptr<GGMLBlock>(new Conv2d(num_feat + 4 * num_grow_ch, num_feat, {3, 3}, {1, 1}, {1, 1}));
     }
 
-    struct ggml_tensor* lrelu(GGMLRunnerContext* ctx, struct ggml_tensor* x) {
+    ggml_tensor* lrelu(GGMLRunnerContext* ctx, ggml_tensor* x) {
         return ggml_leaky_relu(ctx->ggml_ctx, x, 0.2f, true);
     }
 
-    struct ggml_tensor* forward(GGMLRunnerContext* ctx, struct ggml_tensor* x) {
+    ggml_tensor* forward(GGMLRunnerContext* ctx, ggml_tensor* x) {
         // x: [n, num_feat, h, w]
         // return: [n, num_feat, h, w]
 
@@ -64,7 +64,7 @@ public:
         blocks["rdb3"] = std::shared_ptr<GGMLBlock>(new ResidualDenseBlock(num_feat, num_grow_ch));
     }
 
-    struct ggml_tensor* forward(GGMLRunnerContext* ctx, struct ggml_tensor* x) {
+    ggml_tensor* forward(GGMLRunnerContext* ctx, ggml_tensor* x) {
         // x: [n, num_feat, h, w]
         // return: [n, num_feat, h, w]
 
@@ -112,11 +112,11 @@ public:
     int get_scale() { return scale; }
     int get_num_block() { return num_block; }
 
-    struct ggml_tensor* lrelu(GGMLRunnerContext* ctx, struct ggml_tensor* x) {
+    ggml_tensor* lrelu(GGMLRunnerContext* ctx, ggml_tensor* x) {
         return ggml_leaky_relu(ctx->ggml_ctx, x, 0.2f, true);
     }
 
-    struct ggml_tensor* forward(GGMLRunnerContext* ctx, struct ggml_tensor* x) {
+    ggml_tensor* forward(GGMLRunnerContext* ctx, ggml_tensor* x) {
         // x: [n, num_in_ch, h, w]
         // return: [n, num_out_ch, h*scale, w*scale]
         auto conv_first = std::dynamic_pointer_cast<Conv2d>(blocks["conv_first"]);
@@ -124,27 +124,33 @@ public:
         auto conv_hr    = std::dynamic_pointer_cast<Conv2d>(blocks["conv_hr"]);
         auto conv_last  = std::dynamic_pointer_cast<Conv2d>(blocks["conv_last"]);
 
-        auto feat      = conv_first->forward(ctx, x);
+        auto feat = conv_first->forward(ctx, x);
+        sd::ggml_graph_cut::mark_graph_cut(feat, "esrgan.prelude", "feat");
         auto body_feat = feat;
         for (int i = 0; i < num_block; i++) {
             std::string name = "body." + std::to_string(i);
             auto block       = std::dynamic_pointer_cast<RRDB>(blocks[name]);
 
             body_feat = block->forward(ctx, body_feat);
+            sd::ggml_graph_cut::mark_graph_cut(body_feat, "esrgan.body." + std::to_string(i), "feat");
         }
         body_feat = conv_body->forward(ctx, body_feat);
         feat      = ggml_add(ctx->ggml_ctx, feat, body_feat);
+        sd::ggml_graph_cut::mark_graph_cut(feat, "esrgan.body.out", "feat");
         // upsample
         if (scale >= 2) {
             auto conv_up1 = std::dynamic_pointer_cast<Conv2d>(blocks["conv_up1"]);
             feat          = lrelu(ctx, conv_up1->forward(ctx, ggml_upscale(ctx->ggml_ctx, feat, 2, GGML_SCALE_MODE_NEAREST)));
+            sd::ggml_graph_cut::mark_graph_cut(feat, "esrgan.up1", "feat");
             if (scale == 4) {
                 auto conv_up2 = std::dynamic_pointer_cast<Conv2d>(blocks["conv_up2"]);
                 feat          = lrelu(ctx, conv_up2->forward(ctx, ggml_upscale(ctx->ggml_ctx, feat, 2, GGML_SCALE_MODE_NEAREST)));
+                sd::ggml_graph_cut::mark_graph_cut(feat, "esrgan.up2", "feat");
             }
         }
         // for all scales
         auto out = conv_last->forward(ctx, lrelu(ctx, conv_hr->forward(ctx, feat)));
+        sd::ggml_graph_cut::mark_graph_cut(out, "esrgan.final", "out");
         return out;
     }
 };
@@ -341,27 +347,24 @@ struct ESRGAN : public GGMLRunner {
         return success;
     }
 
-    struct ggml_cgraph* build_graph(struct ggml_tensor* x) {
+    ggml_cgraph* build_graph(const sd::Tensor<float>& x_tensor) {
         if (!rrdb_net)
             return nullptr;
         constexpr int kGraphNodes = 1 << 16;  // 65k
-        struct ggml_cgraph* gf    = new_graph_custom(kGraphNodes);
-        x                         = to_backend(x);
+        ggml_cgraph* gf           = new_graph_custom(kGraphNodes);
+        ggml_tensor* x            = make_input(x_tensor);
 
-        auto runner_ctx         = get_context();
-        struct ggml_tensor* out = rrdb_net->forward(&runner_ctx, x);
+        auto runner_ctx  = get_context();
+        ggml_tensor* out = rrdb_net->forward(&runner_ctx, x);
         ggml_build_forward_expand(gf, out);
         return gf;
     }
 
-    bool compute(const int n_threads,
-                 struct ggml_tensor* x,
-                 ggml_tensor** output,
-                 ggml_context* output_ctx = nullptr) {
-        auto get_graph = [&]() -> struct ggml_cgraph* {
-            return build_graph(x);
-        };
-        return GGMLRunner::compute(get_graph, n_threads, false, output, output_ctx);
+    sd::Tensor<float> compute(const int n_threads,
+                              const sd::Tensor<float>& x) {
+        auto get_graph = [&]() -> ggml_cgraph* { return build_graph(x); };
+        auto result    = restore_trailing_singleton_dims(GGMLRunner::compute<float>(get_graph, n_threads, false), x.dim());
+        return result;
     }
 };
 
