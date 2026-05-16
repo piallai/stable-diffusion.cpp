@@ -35,7 +35,7 @@ const char* const modes_str[] = {
     "metadata",
 };
 
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(SD_EXAMPLES_GLOVE_GUI)
 static std::string utf16_to_utf8(const std::wstring& wstr) {
     if (wstr.empty())
         return {};
@@ -214,6 +214,28 @@ void ArgOptions::print() const {
     }
 }
 
+#ifdef SD_EXAMPLES_GLOVE_GUI
+template <class Toption>
+bool checkOptionsInCLI(int argc, const char** argv, const std::vector<Toption>& _options) {
+    std::string arg;
+    bool found_all_options = true;
+    for (auto option = _options.cbegin(); option != _options.cend(); ++option) {
+        bool found_arg = false;
+        for (int i = 1; i < argc && !found_arg; i++) {
+            arg = argv[i];
+            if (arg == option->long_name || arg == option->short_name) {
+                found_arg = true;
+            }
+        }
+        if (!found_arg) {
+            fprintf(stderr, "error: can not find argument for option: %s\n", option->long_name.c_str());
+        }
+        found_all_options &= found_arg;
+    }
+    return found_all_options;
+}
+#endif
+
 bool parse_options(int argc, const char** argv, const std::vector<ArgOptions>& options_list) {
     bool invalid_arg = false;
     std::string arg;
@@ -282,6 +304,10 @@ bool parse_options(int argc, const char** argv, const std::vector<ArgOptions>& o
                 break;
         }
 
+        if (arg == "-h" || arg == "--help") {
+            return false;
+        }
+
         if (invalid_arg) {
             LOG_ERROR("error: invalid parameter for argument: %s", arg.c_str());
             return false;
@@ -291,6 +317,21 @@ bool parse_options(int argc, const char** argv, const std::vector<ArgOptions>& o
             return false;
         }
     }
+
+#define CHECK_ARGS
+#if defined(SD_EXAMPLES_GLOVE_GUI) && defined(CHECK_ARGS)
+    // Check that every option exists in CLI args. All options must be filled in the GUI for this part to be usefull
+    for (auto& options : options_list) {
+        bool found_options = checkOptionsInCLI(argc, argv, options.string_options);
+        found_options &= checkOptionsInCLI(argc, argv, options.int_options);
+        found_options &= checkOptionsInCLI(argc, argv, options.float_options);
+        found_options &= checkOptionsInCLI(argc, argv, options.bool_options);
+        found_options &= checkOptionsInCLI(argc, argv, options.manual_options);
+        if (!found_options) {
+            //__debugbreak();
+        }
+    }
+#endif
 
     return true;
 }
@@ -1155,7 +1196,7 @@ ArgOptions SDGenerationParams::get_options() {
             return -1;
         }
         cache_mode = argv_to_utf8(index, argv);
-        if (cache_mode != "easycache" && cache_mode != "ucache" &&
+        if (cache_mode != "disabled" && cache_mode != "easycache" && cache_mode != "ucache" &&
             cache_mode != "dbcache" && cache_mode != "taylorseer" && cache_mode != "cache-dit" && cache_mode != "spectrum") {
             fprintf(stderr, "error: invalid cache mode '%s', must be 'easycache', 'ucache', 'dbcache', 'taylorseer', 'cache-dit', or 'spectrum'\n", cache_mode.c_str());
             return -1;

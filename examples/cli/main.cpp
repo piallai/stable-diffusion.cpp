@@ -560,7 +560,6 @@ int main(int argc, char* argv[]) {
     int parsing_exit_code = parse_args(argc, const_cast<const char**>(argv), cli_params, ctx_params, gen_params, proceed);
     if (proceed) {
 
-    parse_args(argc, argv, cli_params, ctx_params, gen_params);
     sd_set_log_callback(sd_log_cb, (void*)&cli_params);
     log_verbose = cli_params.verbose;
     log_color   = cli_params.color;
@@ -804,25 +803,25 @@ int main(int argc, char* argv[]) {
         }
 
         if (gen_params.sample_params.sample_method == SAMPLE_METHOD_COUNT) {
-            gen_params.sample_params.sample_method = sd_get_default_sample_method(sd_ctx.get());
+            gen_params.sample_params.sample_method = sd_get_default_sample_method(sd_ctx);
         }
 
         if (gen_params.high_noise_sample_params.sample_method == SAMPLE_METHOD_COUNT) {
-            gen_params.high_noise_sample_params.sample_method = sd_get_default_sample_method(sd_ctx.get());
+            gen_params.high_noise_sample_params.sample_method = sd_get_default_sample_method(sd_ctx);
         }
 
         if (gen_params.sample_params.scheduler == SCHEDULER_COUNT) {
-            gen_params.sample_params.scheduler = sd_get_default_scheduler(sd_ctx.get(), gen_params.sample_params.sample_method);
+            gen_params.sample_params.scheduler = sd_get_default_scheduler(sd_ctx, gen_params.sample_params.sample_method);
         }
 
         if (cli_params.mode == IMG_GEN) {
             sd_img_gen_params_t img_gen_params = gen_params.to_sd_img_gen_params_t();
 
             num_results = gen_params.batch_count;
-            results.adopt(generate_image(sd_ctx.get(), &img_gen_params), num_results);
+            results.adopt(generate_image(sd_ctx, &img_gen_params), num_results);
         } else if (cli_params.mode == VID_GEN) {
             sd_vid_gen_params_t vid_gen_params = gen_params.to_sd_vid_gen_params_t();
-            sd_image_t* generated_video        = generate_video(sd_ctx.get(), &vid_gen_params, &num_results);
+            sd_image_t* generated_video        = generate_video(sd_ctx, &vid_gen_params, &num_results);
             results.adopt(generated_video, num_results);
         }
 
@@ -876,17 +875,10 @@ int main(int argc, char* argv[]) {
 #ifdef SD_EXAMPLES_GLOVE_GUI
         glove_recurrent_var, glove_parametrization,
 #endif
-        results, num_results)) {
+        results.data(), num_results)) {
         return 1;
     }
-
-    for (int i = 0; i < num_results; i++) {
-        free(results[i].data);
-        results[i].data = nullptr;
-    }
-    free(results);
-
-    release_all_resources();    
+    
     }
 #ifdef SD_EXAMPLES_GLOVE_GUI
     glove_recurrent_var.params = glove_parametrization;

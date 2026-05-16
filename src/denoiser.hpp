@@ -831,7 +831,13 @@ static sd::Tensor<float> sample_euler_ancestral(denoise_cb_t model,
                                                 std::shared_ptr<RNG> rng,
                                                 float eta) {
     int steps = static_cast<int>(sigmas.size()) - 1;
+#ifdef SD_EXAMPLES_GLOVE_GUI
+    SlvProgressionQt& p = *GlvApp::get_progression("Generating image");
+    for (p = 0; p << steps; p++) {
+        int i = p;
+#else
     for (int i = 0; i < steps; i++) {
+#endif
         float sigma       = sigmas[i];
         auto denoised_opt = model(x, sigma, i + 1, nullptr);
         if (denoised_opt.empty()) {

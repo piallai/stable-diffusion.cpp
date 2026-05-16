@@ -1,7 +1,15 @@
 set(TARGET sd-cli)
 
 if(SD_EXAMPLES_GLOVE_GUI)
-	add_executable(${TARGET} main.cpp main_glove.h ${CMAKE_SOURCE_DIR}/thirdparty/glove.h)
+	add_executable(${TARGET}
+		../common/common.cpp
+		../common/log.cpp
+		../common/media_io.cpp
+		image_metadata.cpp
+		main.cpp
+		main_glove.h
+		${CMAKE_SOURCE_DIR}/thirdparty/glove.h
+	)
 	target_compile_definitions(${TARGET} PUBLIC -D SD_EXAMPLES_GLOVE_GUI)
 	if(SD_EXAMPLES_GLOVE_GUI_DESKTOP)
 		target_compile_definitions(${TARGET} PUBLIC -D SD_EXAMPLES_GLOVE_GUI_DESKTOP)
@@ -9,14 +17,20 @@ if(SD_EXAMPLES_GLOVE_GUI)
 	if(SD_EXAMPLES_IMG2IMG_REPEAT)
 		target_compile_definitions(${TARGET} PUBLIC -D SD_EXAMPLES_IMG2IMG_REPEAT)
 	endif()
-	target_link_libraries(${TARGET} PRIVATE stable-diffusion ${CMAKE_THREAD_LIBS_INIT} Qt${QT_VERSION}::Widgets)
+	target_link_libraries(${TARGET} PRIVATE stable-diffusion zip ${CMAKE_THREAD_LIBS_INIT} Qt${QT_VERSION}::Widgets)
 	if(MSVC)
 		target_compile_options(${TARGET} PUBLIC /bigobj)
 		target_compile_options(stable-diffusion PUBLIC /bigobj)
 	endif()
 else()
-	add_executable(${TARGET} main.cpp)
-	target_link_libraries(${TARGET} PRIVATE stable-diffusion ${CMAKE_THREAD_LIBS_INIT})
+	add_executable(${TARGET}
+		../common/common.cpp
+		../common/log.cpp
+		../common/media_io.cpp
+		image_metadata.cpp
+		main.cpp
+	)
+	target_link_libraries(${TARGET} PRIVATE stable-diffusion zip ${CMAKE_THREAD_LIBS_INIT})
 endif()
 
 if(SD_WEBP)
