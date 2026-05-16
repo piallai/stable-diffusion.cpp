@@ -3376,7 +3376,14 @@ static sd_image_t* decode_image_outputs(sd_ctx_t* sd_ctx,
     std::vector<sd::Tensor<float>> decoded_images;
     int64_t t0 = ggml_time_ms();
 
+#ifdef SD_EXAMPLES_GLOVE_GUI
+    GlvApp::get_progression("Decoding")->set_message("Processing");
+    SlvProgressionQt& p = *GlvApp::get_progression("Decoding");
+    for (p = 0; p << final_latents.size(); p++) {
+        size_t i = p;
+#else
     for (size_t i = 0; i < final_latents.size(); i++) {
+#endif
         int64_t t1              = ggml_time_ms();
         sd::Tensor<float> image = sd_ctx->sd->decode_first_stage(final_latents[i]);
         if (image.empty()) {

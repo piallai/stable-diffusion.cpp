@@ -81,6 +81,7 @@ glvm_parametrization(GlvSdModels, "Models",
     control_net, SlvFile, "--control-net", "path to control net model", SlvFile(SlvFile::IO::Read),
     embd_dir, SlvDirectory, "--embd-dir", "path to embeddings", SlvDirectory(),
     lora_model_dir, SlvDirectory, "--lora-model-dir", "lora model directory", SlvDirectory(),
+    hires_upscalers_dir, SlvDirectory, "--hires-upscalers-dir", "highres fix upscaler model directory", SlvDirectory(),
     photo_maker_path, SlvFile, "--photo-maker", "path to PHOTOMAKER model", SlvFile(SlvFile::IO::Read),
     upscale_model, SlvFile, "--upscale-model", "path to esrgan model. Upscale images after generate, just RealESRGAN_x4plus_anime_6B supported by now", SlvFile(SlvFile::IO::Read)
 )
@@ -149,21 +150,36 @@ glvm_parametrization(GlvSdCLIOptionsAdvanced, "CLI options advanced",
     verbose, bool, "--verbose@-v", "print extra info", false
 )
 
+glvm_SlvEnum(MetadataFormat, text, json);
+
+glvm_parametrization(GlvSdCLIOptionsMetadata, "CLI options metadata",
+    image, SlvFile, "--image", "path to the image to inspect (for metadata mode)", SlvFile(SlvFile::IO::Read),
+    metadata_format, MetadataFormat, "--metadata-format", "metadata output format, one of [text, json] (default: text)", MetadataFormat::text,
+    metadata_raw, bool, "--metadata-raw", "include raw hex previews for unparsed metadata payloads", false,
+    metadata_brief, bool, "--metadata-brief", "truncate long metadata text values in text output", false,
+    metadata_all, bool, "--metadata-all", "include structural/container entries such as IHDR, IDAT, and non-metadata JPEG segments", false
+)
+
 glvm_parametrization(GlvSdCLIOptions, "CLI options",
     mode, ProcessingMode, "--mode@-M", "run mode, one of [img_gen, vid_gen, upscale, convert], default: img_gen", ProcessingMode::img_gen,
     output, SlvFile, "--output@-o", "path to write result image to. you can use printf-style %d format specifiers for image sequences (default: ./output.png) (eg. output_%03d.png)", SlvFile("./output.png", SlvFileExtensions({".png", ".jpg", ".jpeg", ".jpe", ".gguf"}), SlvFile::IO::Write),
     preview_params, GlvSdParamsPreview, "Preview", "", GlvSdParamsPreview(),
+    metadata_params, GlvSdCLIOptionsMetadata, "Metadata", "", GlvSdCLIOptionsMetadata(),
     advanced_params, GlvSdCLIOptionsAdvanced, "Advanced", "", GlvSdCLIOptionsAdvanced()
 )
 
 glvm_parametrization(GlvSdContextOptionsAdvanced, "Context options advanced",
     threads, int, "--threads@-t", "number of threads to use during computation (default: -1) \nIf threads <= 0, then threads will be set to the number of CPU physical cores", -1,
+    max_vram, float, "--max-vram", "maximum VRAM budget in GiB for graph-cut segmented execution. 0 disables\ngraph splitting; -1 auto-detects free VRAM minus 1 GiB", 0.f,
     chroma_params, GlvSdParamsChroma, "Chroma", "", GlvSdParamsChroma(),
     Vae_tiling_params, GlvSdParamsVaeTiling, "Vae tiling", "", GlvSdParamsVaeTiling(),
+    qwen_image_zero_cond_t, bool, "--qwen-image-zero-cond-t", "enable zero_cond_t for qwen image", false,
     flow_shift, float, "--flow-shift", "shift value for Flow models like SD3.x or WAN (default: auto)", INFINITY,
     force_sdxl_vae_conv_scale, bool, "--force-sdxl-vae-conv-scale", "force use of conv scale on sdxl vae", false,
+    mmap, bool, "--mmap", "whether to memory-map model", false,
     On_CPU_params, GlvSdParamsOnCPU, "On CPU", "", GlvSdParamsOnCPU(),
-    diffusion_fa, bool, "--diffusion-fa", "use flash attention in the diffusion model (for low vram)\nMight lower quality, since it implies converting k and v to f16.\nThis might crash if it is not supported by the backend.", false,
+    fa, bool, "--fa", "use flash attention", false,
+    diffusion_fa, bool, "--diffusion-fa", "use flash attention in the diffusion model only", false,
     diffusion_conv_direct, bool, "--diffusion-conv-direct", "use ggml_conv2d_direct in the diffusion model", false,
     vae_conv_direct, bool, "--vae-conv-direct", "use ggml_conv2d_direct in the vae model", false,
     circular, bool, "--circular", "enable circular padding for convolutions", false,
@@ -189,7 +205,21 @@ glvm_parametrization(GlvSdCacheParams, "Cache params",
     scm_policy, ScmPolicy, "--scm-policy", "SCM policy: 'dynamic' (default) or 'static'", ScmPolicy::dynamic
 )
 
+glvm_SlvEnum_named(HiresUpscaler, Lanczos, "Lanczos", Nearest, "Nearest", Latent, "Latent", Latend_neared, "Latent (nearest)", Latent_nearest_exact, "Latent(nearest-exact)", Latend_antialiased, "Latent (antialiased)", Latent_bicubic, "Latent (bicubic)", Latent_bicubic_antialiased, "Latent (bicubic antialiased)");
+
+glvm_parametrization(GlvSdHiresParams, "Hires params",
+    hires_enabled, bool, "--hires", "enable highres fix", false,
+    hires_upscaler, HiresUpscaler, "--hires-upscaler", "highres fix upscaler, Lanczos, Nearest, Latent, Latent (nearest), Latent\n(nearest-exact), Latent (antialiased), Latent (bicubic), Latent (bicubic\nantialiased), or a model name under --hires-upscalers-dir (default: Latent)", HiresUpscaler::Latent,
+    hires_width, unsigned int, "--hires-width", "highres fix target width, 0 to use --hires-scale (default: 0)", 0,
+    hires_height, unsigned int, "--hires-height", "highres fix target height, 0 to use --hires-scale (default: 0)", 0,
+    hires_steps, unsigned int, "--hires-steps", "highres fix second pass sample steps, 0 to reuse --steps (default: 0)", 0,
+    hires_upscale_tile_size, unsigned int, "--hires-upscale-tile-size", "highres fix upscaler tile size, reserved for model-backed upscalers (default:\n128)", 128,
+    hires_scale, float, "--hires-scale", "highres fix scale when target size is not set (default: 2.0)", 2.f,
+    hires_denoising_strength, float, "--hires-denoising-strength", "highres fix second pass denoising strength (default: 0.7)", 0.7f
+)
+
 glvm_parametrization(GlvSdGenerationOptionsAdvanced, "Generation options advanced",
+    disable_image_metadata, bool, "--disable-image-metadata", "do not embed generation metadata on image files", false,
     clip_skip, int, "--clip-skip", "ignore last layers of CLIP network; 1 ignores none, 2 ignores one layer (default: -1) \n<= 0 represents unspecified, will be 1 for SD1.x, 2 for SD2.x", -1,
     moe_boundary, float, "--moe-boundary", "timestep boundary for Wan2.2 MoE model. (default: 0.875). Only enabled if `--high-noise-steps` is set to -1", 0.875f,
     vace_strength, float, "--vace-strength", "wan vace strength", 1.f,
@@ -197,6 +227,7 @@ glvm_parametrization(GlvSdGenerationOptionsAdvanced, "Generation options advance
     increase_ref_index, bool, "--increase-ref-index", "automatically increase the indices of references images based on the order they are listed (starting with 1).", false,
     sampling_method, SamplingMethod, "--sampling-method", "{euler, euler_a, heun, dpm2, dpm++2s_a, dpm++2m, dpm++2mv2, ipndm, ipndm_v, lcm, ddim_trailing, tcd} \nsampling method (default: 'euler_a')", SamplingMethod::euler_a,
     scheduler, Scheduler, "--scheduler", "denoiser sigma scheduler, one of [discrete, karras, exponential, ays, gits, smoothstep, sgm_uniform, simple, kl_optimal, lcm],\ndefault: discrete", Scheduler::discrete,
+    extra_sample_args, std::string, "--extra-sample-args", "extra sampler args, key=value list. Currently lcm supports noise_clip_std,\nnoise_scale_start, noise_scale_end", "",
     cache, GlvSdCacheParams, "Cache params", "", GlvSdCacheParams(),
     high_noise_params, GlvSdParamsHighNoise, "High noise", "", GlvSdParamsHighNoise()
 )
@@ -214,6 +245,7 @@ glvm_parametrization(GlvSdGenerationOptions, "Generation options",
     photomaker_params, GlvSdParamsPhotomaker, "Photomaker", "", GlvSdParamsPhotomaker(),
     video_params, GlvSdParamsVideo, "Video", "", GlvSdParamsVideo(),
     upscale_params, GlvSdParamsUpscale, "Upscale", "", GlvSdParamsUpscale(),
+    hires_params, GlvSdHiresParams, "Hires", "", GlvSdHiresParams(),
     advanced_params, GlvSdGenerationOptionsAdvanced, "Advanced", "", GlvSdGenerationOptionsAdvanced()
 )
 
