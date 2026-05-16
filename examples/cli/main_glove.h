@@ -168,9 +168,15 @@ glvm_parametrization(GlvSdCLIOptions, "CLI options",
     advanced_params, GlvSdCLIOptionsAdvanced, "Advanced", "", GlvSdCLIOptionsAdvanced()
 )
 
+glvm_parametrization(GlvSdBackend, "Backend",
+    backend, std::string, "--backend", "selects the runtime backend used to execute model graphs", "",
+    params_backend, std::string, "--params-backend", "selects the backend used to allocate model parameters", ""
+)
+
 glvm_parametrization(GlvSdContextOptionsAdvanced, "Context options advanced",
     threads, int, "--threads@-t", "number of threads to use during computation (default: -1) \nIf threads <= 0, then threads will be set to the number of CPU physical cores", -1,
     max_vram, float, "--max-vram", "maximum VRAM budget in GiB for graph-cut segmented execution. 0 disables\ngraph splitting; -1 auto-detects free VRAM minus 1 GiB", 0.f,
+    backend, GlvSdBackend, "Backend", "", GlvSdBackend(),
     chroma_params, GlvSdParamsChroma, "Chroma", "", GlvSdParamsChroma(),
     Vae_tiling_params, GlvSdParamsVaeTiling, "Vae tiling", "", GlvSdParamsVaeTiling(),
     qwen_image_zero_cond_t, bool, "--qwen-image-zero-cond-t", "enable zero_cond_t for qwen image", false,
@@ -293,7 +299,7 @@ struct RecurrentStruct {
 
 #ifdef SD_EXAMPLES_GLOVE_GUI_DESKTOP
 #define GLOVE_APP_AUTO true
-//#pragma GLOVE_APP_MSVC_NO_CONSOLE
+#pragma GLOVE_APP_MSVC_NO_CONSOLE
 #endif
 #define GLOVE_APP_RECURRENT_MODE true
 #define GLOVE_APP_RECURRENT_TYPE RecurrentStruct
