@@ -86,7 +86,6 @@ bool sd_should_preview_noisy();
 
 // test if the backend is a specific one, e.g. "CUDA", "ROCm", "Vulkan" etc.
 bool sd_backend_is(ggml_backend_t backend, const std::string& name);
-ggml_backend_t sd_get_default_backend();
 
 #ifdef SD_EXAMPLES_GLOVE_GUI
 #define GLOVE_ENABLE_JSON

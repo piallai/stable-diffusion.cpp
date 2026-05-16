@@ -74,6 +74,12 @@ option(SD_EXAMPLES_IMG2IMG_REPEAT    "sd: if SD_EXAMPLES_GLOVE_GUI, auto repeat 
 set(QT_VERSION "6" CACHE STRING "Qt version")
 set_property(CACHE QT_VERSION PROPERTY STRINGS 5 6)
 
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED true)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED true)
+
 if(SD_CUDA)
     message("-- Use CUDA as backend stable-diffusion")
     set(GGML_CUDA ON)
