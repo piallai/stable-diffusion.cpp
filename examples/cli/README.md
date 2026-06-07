@@ -41,6 +41,8 @@ Context Options:
   --qwen2vl_vision <string>                alias of --llm_vision. Deprecated.
   --diffusion-model <string>               path to the standalone diffusion model
   --high-noise-diffusion-model <string>    path to the standalone high noise diffusion model
+  --uncond-diffusion-model <string>        path to the standalone unconditional diffusion model, currently used by
+                                           Ideogram4 CFG
   --vae <string>                           path to standalone vae model
   --taesd <string>                         path to taesd. Using Tiny AutoEncoder for fast decoding (low quality)
   --tae <string>                           alias of --taesd
@@ -55,7 +57,8 @@ Context Options:
                                            then threads will be set to the number of CPU physical cores
   --chroma-t5-mask-pad <int>               t5 mask pad size of chroma
   --max-vram <float>                       maximum VRAM budget in GiB for graph-cut segmented execution. 0 disables
-                                           graph splitting; -1 auto-detects free VRAM minus 1 GiB
+                                           graph splitting; a negative value auto-detects free VRAM, sparing the
+                                           specified value (e.g. -0.5 will keep at least 0.5 GiB free)
   --force-sdxl-vae-conv-scale              force use of conv scale on sdxl vae
   --offload-to-cpu                         place the weights in RAM to save VRAM, and automatically load them into VRAM
                                            when needed
@@ -103,8 +106,12 @@ Generation Options:
   --hires-upscaler <string>                highres fix upscaler, Lanczos, Nearest, Latent, Latent (nearest), Latent
                                            (nearest-exact), Latent (antialiased), Latent (bicubic), Latent (bicubic
                                            antialiased), or a model name under --hires-upscalers-dir (default: Latent)
-  --extra-sample-args <string>             extra sampler args, key=value list. Currently lcm supports noise_clip_std,
-                                           noise_scale_start, noise_scale_end
+  --extra-sample-args <string>             extra sampler/scheduler/guidance args, key=value list. APG supports apg_eta,
+                                           apg_momentum, apg_norm_threshold, apg_norm_threshold_smoothing; SLG supports
+                                           slg_uncond; lcm supports noise_clip_std, noise_scale_start, noise_scale_end;
+                                           ltx2 supports max_shift, base_shift, stretch, terminal; euler_ge supports gamma
+  --extra-tiling-args <string>             extra VAE tiling args, key=value list. LTX video VAE supports
+                                           temporal_tile_frames (default: 4), temporal_tile_overlap (default: 1)
   -H, --height <int>                       image height, in pixel space (default: 512)
   -W, --width <int>                        image width, in pixel space (default: 512)
   --steps <int>                            number of sample steps (default: 20)
@@ -124,8 +131,8 @@ Generation Options:
   --hires-upscale-tile-size <int>          highres fix upscaler tile size, reserved for model-backed upscalers (default:
                                            128)
   --cfg-scale <float>                      unconditional guidance scale: (default: 7.0)
-  --img-cfg-scale <float>                  image guidance scale for inpaint or instruct-pix2pix models: (default: same
-                                           as --cfg-scale)
+  --img-cfg-scale <float>                  image guidance scale for inpaint or image edit models: (default: same as
+                                           --cfg-scale)
   --guidance <float>                       distilled guidance scale for models with guidance input (default: 3.5)
   --slg-scale <float>                      skip layer guidance (SLG) scale, only for DiT models: (default: 0). 0 means
                                            disabled, a value of 2.5 is nice for sd3.5 medium
@@ -135,8 +142,8 @@ Generation Options:
                                            res_2s; 1 for euler_a, er_sde and dpm++2s_a)
   --flow-shift <float>                     shift value for Flow models like SD3.x or WAN (default: auto)
   --high-noise-cfg-scale <float>           (high noise) unconditional guidance scale: (default: 7.0)
-  --high-noise-img-cfg-scale <float>       (high noise) image guidance scale for inpaint or instruct-pix2pix models
-                                           (default: same as --cfg-scale)
+  --high-noise-img-cfg-scale <float>       (high noise) image guidance scale for inpaint or image edit models (default:
+                                           same as --cfg-scale)
   --high-noise-guidance <float>            (high noise) distilled guidance scale for models with guidance input
                                            (default: 3.5)
   --high-noise-slg-scale <float>           (high noise) skip layer guidance (SLG) scale, only for DiT models: (default:
@@ -146,7 +153,7 @@ Generation Options:
   --high-noise-eta <float>                 (high noise) noise multiplier (default: 0 for ddim_trailing, tcd,
                                            res_multistep and res_2s; 1 for euler_a, er_sde and dpm++2s_a)
   --strength <float>                       strength for noising/unnoising (default: 0.75)
-  --pm-style-strength <float>              
+  --pm-style-strength <float>
   --control-strength <float>               strength to apply Control Net (default: 0.9). 1.0 corresponds to full
                                            destruction of information in init image
   --moe-boundary <float>                   timestep boundary for Wan2.2 MoE model. (default: 0.875). Only enabled if
@@ -160,6 +167,7 @@ Generation Options:
   --disable-auto-resize-ref-image          disable auto resize of ref images
   --disable-image-metadata                 do not embed generation metadata on image files
   --vae-tiling                             process vae in tiles to reduce memory usage
+  --temporal-tiling                        enable temporal tiling for LTX video VAE decode
   --hires                                  enable highres fix
   -s, --seed                               RNG seed (default: 42, use random seed for < 0)
   --sampling-method                        sampling method, one of [euler, euler_a, heun, dpm2, dpm++2s_a, dpm++2m,
@@ -169,10 +177,12 @@ Generation Options:
                                            dpm++2m, dpm++2mv2, ipndm, ipndm_v, lcm, ddim_trailing, tcd, res_multistep,
                                            res_2s, er_sde, euler_cfg_pp, euler_a_cfg_pp] default: euler for Flux/SD3/Wan, euler_a otherwise
   --scheduler                              denoiser sigma scheduler, one of [discrete, karras, exponential, ays, gits,
-                                           smoothstep, sgm_uniform, simple, kl_optimal, lcm, bong_tangent], default:
-                                           discrete
+                                           smoothstep, sgm_uniform, simple, kl_optimal, lcm, bong_tangent, ltx2], default:
+                                           model-specific
   --sigmas                                 custom sigma values for the sampler, comma-separated (e.g.,
                                            "14.61,7.8,3.5,0.0").
+  --hires-sigmas                           custom sigma values for the highres fix second pass, comma-separated (e.g.,
+                                           "0.85,0.725,0.421875,0.0").
   --skip-layers                            layers to skip for SLG steps (default: [7,8,9])
   --high-noise-skip-layers                 (high noise) layers to skip for SLG steps (default: [7,8,9])
   -r, --ref-image                          reference image for Flux Kontext models (can be used multiple times)

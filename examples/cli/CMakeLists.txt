@@ -17,6 +17,15 @@ if(SD_EXAMPLES_GLOVE_GUI)
 	if(SD_EXAMPLES_IMG2IMG_REPEAT)
 		target_compile_definitions(${TARGET} PUBLIC -D SD_EXAMPLES_IMG2IMG_REPEAT)
 	endif()
+	
+	if(APPLE)
+		sd_set_macos_rpaths(${TARGET})
+	endif()
+	target_include_directories(${TARGET} PRIVATE
+		"${CMAKE_CURRENT_SOURCE_DIR}/.."
+		"${PROJECT_SOURCE_DIR}/src"
+	)
+	install(TARGETS ${TARGET} RUNTIME)
 	target_link_libraries(${TARGET} PRIVATE stable-diffusion zip ${CMAKE_THREAD_LIBS_INIT} Qt${QT_VERSION}::Widgets)
 	if(MSVC)
 		target_compile_options(${TARGET} PUBLIC /bigobj)
@@ -30,6 +39,14 @@ else()
 		image_metadata.cpp
 		main.cpp
 	)
+	if(APPLE)
+		sd_set_macos_rpaths(${TARGET})
+	endif()
+	target_include_directories(${TARGET} PRIVATE
+		"${CMAKE_CURRENT_SOURCE_DIR}/.."
+		"${PROJECT_SOURCE_DIR}/src"
+	)
+	install(TARGETS ${TARGET} RUNTIME)
 	target_link_libraries(${TARGET} PRIVATE stable-diffusion zip ${CMAKE_THREAD_LIBS_INIT})
 endif()
 
