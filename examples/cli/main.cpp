@@ -293,6 +293,9 @@ int parse_args(int argc, const char** argv, SDCliParams& cli_params, SDContextPa
         print_usage(argc, argv, options_vec);
         proceed = false;
         return 1;
+    } else {
+        proceed = true;
+        return 0;
     }
 
 }
