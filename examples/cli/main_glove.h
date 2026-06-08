@@ -43,7 +43,8 @@ glvm_parametrization(GlvSdParamsVaeTiling, "Vae tiling params",
     vae_tiling, bool, "--vae-tiling", "process vae in tiles to reduce memory usage", false,
     vae_tile_overlap, float, "--vae-tile-overlap", "tile overlap for vae tiling, in fraction of tile size (default: 0.5)", 0.5f,
     vae_tile_size, SlvSize2d<unsigned int>, "--vae-tile-size", "tile size for vae tiling, format [X]x[Y] (default: 32x32)", SlvSize2d<unsigned int>(32 COMMA 32),
-    vae_relative_tile_size, SlvSize2d<float>, "--vae-relative-tile-size", "relative tile size for vae tiling, format [X]x[Y], in fraction of image size if < 1, in number of tiles per dim if >=1\n(overrides --vae-tile-size)", SlvSize2d<float>(0.f COMMA 0.f)
+    vae_relative_tile_size, SlvSize2d<float>, "--vae-relative-tile-size", "relative tile size for vae tiling, format [X]x[Y], in fraction of image size if < 1, in number of tiles per dim if >=1\n(overrides --vae-tile-size)", SlvSize2d<float>(0.f COMMA 0.f),
+    temporal_tiling, bool, "--temporal-tiling", "enable temporal tiling for LTX video VAE decode", false
 )
 
 glvm_parametrization(GlvSdParamsOnCPU, "On CPU",
@@ -76,6 +77,7 @@ glvm_parametrization(GlvSdModels, "Models",
     llm_vision, SlvFile, "--llm_vision@--qwen2vl_vision", "path to the llm vit", SlvFile(SlvFile::IO::Read),
     diffusion_model, SlvFile, "--diffusion-model", "path to the standalone diffusion model", SlvFile(SlvFileExtensions({".gguf", ".safetensors", ".sft"}), SlvFile::IO::Read),
     high_noise_diffusion_model, SlvFile, "--high-noise-diffusion-model", "path to the standalone high noise diffusion model", SlvFile(SlvFileExtensions({".gguf", ".safetensors", ".sft"}), SlvFile::IO::Read),
+    uncond_diffusion_model, SlvFile, "--uncond-diffusion-model", "path to the standalone unconditional diffusion model, currently used by\nIdeogram4 CFG", SlvFile(SlvFileExtensions({".gguf", ".safetensors", ".sft"}), SlvFile::IO::Read),
     vae, SlvFile, "--vae", "path to vae", SlvFile("", SlvFileExtensions({".safetensors", ".sft"}), SlvFile::IO::Read),
     taesd, SlvFile, "--taesd@--tae", "path to taesd. Using Tiny AutoEncoder for fast decoding (low quality)", SlvFile("", SlvFileExtensions({".safetensors", ".sft", ".gguf"}), SlvFile::IO::Read),
     control_net, SlvFile, "--control-net", "path to control net model", SlvFile(SlvFile::IO::Read),
@@ -102,7 +104,7 @@ glvm_parametrization(GlvSdModelSLGHighNoise, "SLG params (high noise)",
 
 glvm_parametrization(GlvSdParamsScale, "Scale params",
     cfg_scale, float, "--cfg-scale", "unconditional guidance scale: (default: 7.0)", 7.0f,
-    img_cfg_scale, float, "--img-cfg-scale", "image guidance scale for inpaint or instruct-pix2pix models: (default: same as --cfg-scale)", INFINITY,
+    img_cfg_scale, float, "--img-cfg-scale", "image guidance scale for inpaint or image edit models: (default: same as\n--cfg-scale)", INFINITY,
     guidance, float, "--guidance", "distilled guidance scale for models with guidance input (default: 3.5)", 3.5f,
     SLG, GlvSdModelSLG, "Skip layer guidance", "", GlvSdModelSLG(),
     eta, float, "--eta", "eta in DDIM, only for DDIM and TCD: (default: 0)", 0.f
@@ -110,7 +112,7 @@ glvm_parametrization(GlvSdParamsScale, "Scale params",
 
 glvm_parametrization(GlvSdParamsScaleHighNoise, "Scale params (high noise)",
     high_noise_cfg_scale, float, "--high-noise-cfg-scale", "(high noise) unconditional guidance scale: (default: 7.0)", 7.0f,
-    high_noise_img_cfg_scale, float, "--high-noise-img-cfg-scale", "(high noise) image guidance scale for inpaint or instruct-pix2pix models (default: same as --cfg-scale)", INFINITY,
+    high_noise_img_cfg_scale, float, "--high-noise-img-cfg-scale", "(high noise) image guidance scale for inpaint or image edit models (default:\nsame as --cfg-scale)", INFINITY,
     high_noise_guidance, float, "--high-noise-guidance", "(high noise) distilled guidance scale for models with guidance input (default: 3.5)", INFINITY,
     SLG_high_noise, GlvSdModelSLGHighNoise, "Skip layer guidance", "", GlvSdModelSLGHighNoise(),
     high_noise_eta, float, "--high-noise-eta", "(high noise) eta in DDIM, only for DDIM and TCD (default: 0)", 0.f
@@ -175,7 +177,7 @@ glvm_parametrization(GlvSdBackend, "Backend",
 
 glvm_parametrization(GlvSdContextOptionsAdvanced, "Context options advanced",
     threads, int, "--threads@-t", "number of threads to use during computation (default: -1) \nIf threads <= 0, then threads will be set to the number of CPU physical cores", -1,
-    max_vram, float, "--max-vram", "maximum VRAM budget in GiB for graph-cut segmented execution. 0 disables\ngraph splitting; -1 auto-detects free VRAM minus 1 GiB", 0.f,
+    max_vram, float, "--max-vram", "maximum VRAM budget in GiB for graph-cut segmented execution. 0 disables\ngraph splitting; a negative value auto-detects free VRAM, sparing the\nspecified value (e.g. -0.5 will keep at least 0.5 GiB free)", 0.f,
     backend, GlvSdBackend, "Backend", "", GlvSdBackend(),
     chroma_params, GlvSdParamsChroma, "Chroma", "", GlvSdParamsChroma(),
     Vae_tiling_params, GlvSdParamsVaeTiling, "Vae tiling", "", GlvSdParamsVaeTiling(),
@@ -221,7 +223,8 @@ glvm_parametrization(GlvSdHiresParams, "Hires params",
     hires_steps, unsigned int, "--hires-steps", "highres fix second pass sample steps, 0 to reuse --steps (default: 0)", 0,
     hires_upscale_tile_size, unsigned int, "--hires-upscale-tile-size", "highres fix upscaler tile size, reserved for model-backed upscalers (default:\n128)", 128,
     hires_scale, float, "--hires-scale", "highres fix scale when target size is not set (default: 2.0)", 2.f,
-    hires_denoising_strength, float, "--hires-denoising-strength", "highres fix second pass denoising strength (default: 0.7)", 0.7f
+    hires_denoising_strength, float, "--hires-denoising-strength", "highres fix second pass denoising strength (default: 0.7)", 0.7f,
+    hires_sigmas, std::string, "--hires-sigmas", "custom sigma values for the highres fix second pass, comma-separated (e.g.,\n\"0.85, 0.725, 0.421875, 0.0\").", ""
 )
 
 glvm_parametrization(GlvSdGenerationOptionsAdvanced, "Generation options advanced",
@@ -232,8 +235,9 @@ glvm_parametrization(GlvSdGenerationOptionsAdvanced, "Generation options advance
     sigmas, std::string, "--sigmas", "custom sigma values for the sampler, comma-separated (e.g., \"14.61,7.8,3.5,0.0\").", {},    
     increase_ref_index, bool, "--increase-ref-index", "automatically increase the indices of references images based on the order they are listed (starting with 1).", false,
     sampling_method, SamplingMethod, "--sampling-method", "{euler, euler_a, heun, dpm2, dpm++2s_a, dpm++2m, dpm++2mv2, ipndm, ipndm_v, lcm, ddim_trailing, tcd} \nsampling method (default: 'euler_a')", SamplingMethod::euler_a,
-    scheduler, Scheduler, "--scheduler", "denoiser sigma scheduler, one of [discrete, karras, exponential, ays, gits, smoothstep, sgm_uniform, simple, kl_optimal, lcm],\ndefault: discrete", Scheduler::discrete,
-    extra_sample_args, std::string, "--extra-sample-args", "extra sampler args, key=value list. Currently lcm supports noise_clip_std,\nnoise_scale_start, noise_scale_end", "",
+    scheduler, Scheduler, "--scheduler", "denoiser sigma scheduler, one of [discrete, karras, exponential, ays, gits,\nsmoothstep, sgm_uniform, simple, kl_optimal, lcm, bong_tangent, ltx2], default:\nmodel-specific", Scheduler::discrete,
+    extra_sample_args, std::string, "--extra-sample-args", "extra sampler/scheduler/guidance args, key=value list. APG supports apg_eta,\napg_momentum, apg_norm_threshold, apg_norm_threshold_smoothing; SLG supports\nslg_uncond; lcm supports noise_clip_std, noise_scale_start, noise_scale_end;\nltx2 supports max_shift, base_shift, stretch, terminal; euler_ge supports gamma", "",
+    extra_tiling_args, std::string, "--extra-tiling-args", "extra VAE tiling args, key=value list. LTX video VAE supports\ntemporal_tile_frames (default: 4), temporal_tile_overlap (default: 1)", "",
     cache, GlvSdCacheParams, "Cache params", "", GlvSdCacheParams(),
     high_noise_params, GlvSdParamsHighNoise, "High noise", "", GlvSdParamsHighNoise()
 )
