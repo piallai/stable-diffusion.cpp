@@ -23,6 +23,11 @@ glvm_parametrization(GlvSdParamsPhotomaker, "Photomaker params",
     pm_style_strength, float, "--pm-style-strength", "", 20.f
 )
 
+glvm_parametrization(GlvSdParamsPuLID, "PuLID params",
+    pulid_id_embedding, SlvFile, "--pulid-id-embedding", "path to PuLID id embedding", SlvFile(SlvFile::IO::Read),
+    pulid_id_weight, float, "--pulid-id-weight", "", 1.f
+)
+
 glvm_parametrization(GlvSdParamsImageVideoInput, "Image/video input params",
     init_img, SlvFile, "--init-img@-i", "path to the init image", SlvFile(SlvFile::IO::Read),
     end_img, SlvFile, "--end-img", "path to the end image, required by flf2v", SlvFile(SlvFile::IO::Read),
@@ -49,9 +54,9 @@ glvm_parametrization(GlvSdParamsVaeTiling, "Vae tiling params",
 
 glvm_parametrization(GlvSdParamsOnCPU, "On CPU",
     offload_to_cpu, bool, "--offload-to-cpu", "place the weights in RAM to save VRAM, and automatically load them into VRAM when needed", false,
-    control_net_cpu, bool, "--control-net-cpu", "keep controlnet in cpu (for low vram)", false,
-    clip_on_cpu, bool, "--clip-on-cpu", "keep clip in cpu (for low vram)", false,
-    vae_on_cpu, bool, "--vae-on-cpu", "keep vae in cpu (for low vram)", false
+    control_net_cpu, bool, "--control-net-cpu", "deprecated; use --backend controlnet=cpu", false,
+    clip_on_cpu, bool, "--clip-on-cpu", "deprecated; use --backend te=cpu", false,
+    vae_on_cpu, bool, "--vae-on-cpu", "deprecated; use --backend vae=cpu", false
 )
 
 glvm_parametrization(GlvSdParamsPreview, "Preview params",
@@ -85,8 +90,8 @@ glvm_parametrization(GlvSdModels, "Models",
     lora_model_dir, SlvDirectory, "--lora-model-dir", "lora model directory", SlvDirectory(),
     hires_upscalers_dir, SlvDirectory, "--hires-upscalers-dir", "highres fix upscaler model directory", SlvDirectory(),
     photo_maker_path, SlvFile, "--photo-maker", "path to PHOTOMAKER model", SlvFile(SlvFile::IO::Read),
-    upscale_model, SlvFile, "--upscale-model", "path to esrgan model. Upscale images after generate, just RealESRGAN_x4plus_anime_6B supported by now", SlvFile(SlvFile::IO::Read)
-)
+    upscale_model, SlvFile, "--upscale-model", "path to esrgan model. Upscale images after generate, just RealESRGAN_x4plus_anime_6B supported by now", SlvFile(SlvFile::IO::Read),
+    pulid_weights, SlvFile, "--pulid-weights", "path to PuLID Flux weights", SlvFile(SlvFile::IO::Read))
 
 glvm_parametrization(GlvSdModelSLG, "SLG params",
     slg_scale, float, "--slg-scale", "skip layer guidance (SLG) scale, only for DiT models: (default: 0)\n0 means disabled, a value of 2.5 is nice for sd3.5 medium.", 0.f,
@@ -177,7 +182,7 @@ glvm_parametrization(GlvSdBackend, "Backend",
 
 glvm_parametrization(GlvSdContextOptionsAdvanced, "Context options advanced",
     threads, int, "--threads@-t", "number of threads to use during computation (default: -1) \nIf threads <= 0, then threads will be set to the number of CPU physical cores", -1,
-    max_vram, float, "--max-vram", "maximum VRAM budget in GiB for graph-cut segmented execution. 0 disables\ngraph splitting; a negative value auto-detects free VRAM, sparing the\nspecified value (e.g. -0.5 will keep at least 0.5 GiB free)", 0.f,
+    max_vram, std::string, "--max-vram", "maximum VRAM budget in GiB for graph-cut segmented execution. Accepts a\nsingle value or assignments by backend/device, e.g. 6 or cuda0=6,vulkan0=4.\n0 disables graph splitting; a negative value auto-detects free VRAM, sparing\n the specified value", "0",
     backend, GlvSdBackend, "Backend", "", GlvSdBackend(),
     chroma_params, GlvSdParamsChroma, "Chroma", "", GlvSdParamsChroma(),
     Vae_tiling_params, GlvSdParamsVaeTiling, "Vae tiling", "", GlvSdParamsVaeTiling(),
@@ -198,7 +203,8 @@ glvm_parametrization(GlvSdContextOptionsAdvanced, "Context options advanced",
     sampler_rng, Rng, "--sampler-rng", "sampler RNG, one of [std_default, cuda, cpu]. If not specified, use --rng", Rng::std_default,
     tensor_type_rules, std::string, "--tensor-type-rules", "weight type per tensor pattern (example: \"^vae\\.=f16,model\\.=q8_0\")", "",
     prediction, Prediction, "--prediction", "prediction type override, one of [eps, v, edm_v, sd3_flow, flux_flow, flux2_flow]", Prediction::eps,
-    lora_apply_mode, LoraApplyMode, "--lora-apply-mode", "the way to apply LoRA, one of [auto, immediately, at_runtime], default is auto. In auto mode, if the model weights\ncontain any quantized parameters, the at_runtime mode will be used; otherwise,\nimmediately will be used.The immediately mode may have precision and\ncompatibility issues with quantized parameters, but it usually offers faster inference\nspeed and, in some cases, lower memory usage. The at_runtime mode, on the\nother hand, is exactly the opposite.", LoraApplyMode::Auto
+    lora_apply_mode, LoraApplyMode, "--lora-apply-mode", "the way to apply LoRA, one of [auto, immediately, at_runtime], default is auto. In auto mode, if the model weights\ncontain any quantized parameters, the at_runtime mode will be used; otherwise,\nimmediately will be used.The immediately mode may have precision and\ncompatibility issues with quantized parameters, but it usually offers faster inference\nspeed and, in some cases, lower memory usage. The at_runtime mode, on the\nother hand, is exactly the opposite.", LoraApplyMode::Auto,
+    rpc_servers, std::string, "--rpc-servers", "comma-separated list of RPC servers to connect to for offloading, in the format host:port, e.g. localhost:50052,192.168.1.3:50052", ""
 )
 
 glvm_parametrization(GlvSdContextOptions, "Context options",
@@ -253,6 +259,7 @@ glvm_parametrization(GlvSdGenerationOptions, "Generation options",
     scale_strength_params, GlvSdScaleStrength, "Scale/strength", "", GlvSdScaleStrength(),
     image_video_input_params, GlvSdParamsImageVideoInput, "Image/video input", "", GlvSdParamsImageVideoInput(),
     photomaker_params, GlvSdParamsPhotomaker, "Photomaker", "", GlvSdParamsPhotomaker(),
+    pulid_params, GlvSdParamsPuLID, "PuLID", "", GlvSdParamsPuLID(),
     video_params, GlvSdParamsVideo, "Video", "", GlvSdParamsVideo(),
     upscale_params, GlvSdParamsUpscale, "Upscale", "", GlvSdParamsUpscale(),
     hires_params, GlvSdHiresParams, "Hires", "", GlvSdHiresParams(),
