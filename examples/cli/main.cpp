@@ -684,13 +684,6 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    bool vae_decode_only = true;
-#ifdef SD_EXAMPLES_GLOVE_GUI
-    if (is_glove_recurrent) {
-        vae_decode_only = false;
-    }
-#endif
-
     auto load_image_and_update_size = [&](const std::string& path,
                                           SDImageOwner& image,
                                           bool resize_image    = true,
@@ -712,21 +705,18 @@ int main(int argc, char* argv[]) {
     };
 
     if (gen_params.init_image_path.size() > 0) {
-        vae_decode_only = false;
         if (!load_image_and_update_size(gen_params.init_image_path, gen_params.init_image)) {
             return 1;
         }
     }
 
     if (gen_params.end_image_path.size() > 0) {
-        vae_decode_only = false;
         if (!load_image_and_update_size(gen_params.end_image_path, gen_params.end_image)) {
             return 1;
         }
     }
 
     if (gen_params.ref_image_paths.size() > 0) {
-        vae_decode_only = false;
         gen_params.ref_images.clear();
         for (auto& path : gen_params.ref_image_paths) {
             SDImageOwner ref_image({0, 0, 3, nullptr});
@@ -801,24 +791,12 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    if (cli_params.mode == VID_GEN) {
-        vae_decode_only = false;
-    }
-
-
-    if (gen_params.hires_enabled &&
-        (gen_params.resolved_hires_upscaler == SD_HIRES_UPSCALER_MODEL ||
-         gen_params.resolved_hires_upscaler == SD_HIRES_UPSCALER_LANCZOS ||
-         gen_params.resolved_hires_upscaler == SD_HIRES_UPSCALER_NEAREST)) {
-        vae_decode_only = false;
-    }
-
-    bool free_params_immediately = true;
 #ifdef SD_EXAMPLES_GLOVE_GUI
-    free_params_immediately = !is_glove_recurrent;
+    if (is_glove_recurrent) {
+        ctx_params.params_backend = "disk";
+    }
 #endif
-    sd_ctx_params_t sd_ctx_params = ctx_params.to_sd_ctx_params_t(vae_decode_only, free_params_immediately, cli_params.taesd_preview);
-
+    sd_ctx_params_t sd_ctx_params = ctx_params.to_sd_ctx_params_t(cli_params.taesd_preview);
 
     SDImageVec results;
     int num_results             = 0;
@@ -899,12 +877,11 @@ int main(int argc, char* argv[]) {
     int upscale_factor = 4;  // unused for RealESRGAN_x4plus_anime_6B.pth
     if (ctx_params.esrgan_path.size() > 0 && gen_params.upscale_repeats > 0) {
         UpscalerCtxPtr upscaler_ctx(new_upscaler_ctx(ctx_params.esrgan_path.c_str(),
-                                                     ctx_params.offload_params_to_cpu,
                                                      ctx_params.diffusion_conv_direct,
                                                      ctx_params.n_threads,
                                                      gen_params.upscale_tile_size,
-                                                     ctx_params.backend.c_str(),
-                                                     ctx_params.params_backend.c_str()));
+                                                     sd_ctx_params.backend,
+                                                     sd_ctx_params.params_backend));
 
         if (upscaler_ctx == nullptr) {
             LOG_ERROR("new_upscaler_ctx failed");
