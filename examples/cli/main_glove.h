@@ -176,8 +176,8 @@ glvm_parametrization(GlvSdCLIOptions, "CLI options",
 )
 
 glvm_parametrization(GlvSdBackend, "Backend",
-    backend, std::string, "--backend", "selects the runtime backend used to execute model graphs", "",
-    params_backend, std::string, "--params-backend", "selects the backend used to allocate model parameters", ""
+    backend, std::string, "--backend", "runtime backend assignment, e.g. cpu or clip=cpu,vae=cuda0,diffusion=vulkan0", "",
+    params_backend, std::string, "--params-backend", "parameter backend assignment, e.g. disk, cpu, or diffusion=disk,clip=cpu", ""
 )
 
 glvm_parametrization(GlvSdContextOptionsAdvanced, "Context options advanced",
