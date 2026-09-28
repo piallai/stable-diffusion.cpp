@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <filesystem>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -22,7 +23,7 @@ struct SDSvrParams {
     int listen_port       = 1234;
     std::string serve_html_path;
     bool normal_exit = false;
-    bool verbose     = false;
+    sd_log_level_t log_level = SD_LOG_INFO;
     bool color       = false;
 
     ArgOptions get_options();
@@ -43,6 +44,9 @@ struct UpscalerEntry {
     std::string fullpath;
     std::string model_name;
     int scale = 4;
+    int image_upscale_factor = 0;
+    uintmax_t file_size      = 0;
+    std::filesystem::file_time_type last_modified;
 };
 
 struct ServerRuntime {

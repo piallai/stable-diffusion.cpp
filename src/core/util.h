@@ -11,6 +11,14 @@
 #include "ggml-backend.h"
 #include "stable-diffusion.h"
 
+#ifndef __STATIC_INLINE__
+#define __STATIC_INLINE__ static inline
+#endif
+
+#ifndef SD_UNUSED
+#define SD_UNUSED(x) (void)(x)
+#endif
+
 #define SAFE_STR(s) ((s) ? (s) : "")
 #define BOOL_STR(b) ((b) ? "true" : "false")
 
@@ -79,8 +87,10 @@ void pretty_progress(int step, int steps, float time);
 void pretty_bytes_progress(int step, int steps, uint64_t bytes_processed, float elapsed_seconds);
 
 void log_printf(sd_log_level_t level, const char* file, int line, const char* format, ...);
+void sd_ggml_log_callback(ggml_log_level level, const char* text, void*);
 
 ggml_type sd_type_to_ggml_type(sd_type_t sdtype);
+bool validate_tensor_types(sd_type_t type, const char* tensor_type_rules);
 
 std::string trim(const std::string& s);
 
@@ -98,6 +108,9 @@ int sd_get_preview_interval();
 bool sd_should_preview_denoised();
 bool sd_should_preview_noisy();
 
+sd_graph_eval_callback_t sd_get_backend_eval_callback();
+void* sd_get_backend_eval_callback_data();
+
 // test if the backend is a specific one, e.g. "CUDA", "ROCm", "Vulkan" etc.
 bool sd_backend_is(ggml_backend_t backend, const std::string& name);
 
@@ -107,6 +120,7 @@ bool sd_backend_is(ggml_backend_t backend, const std::string& name);
 #endif
 
 #define LOG_DEBUG(format, ...) log_printf(SD_LOG_DEBUG, __FILE__, __LINE__, format, ##__VA_ARGS__)
+#define LOG_VERBOSE(format, ...) log_printf(SD_LOG_VERBOSE, __FILE__, __LINE__, format, ##__VA_ARGS__)
 #define LOG_INFO(format, ...) log_printf(SD_LOG_INFO, __FILE__, __LINE__, format, ##__VA_ARGS__)
 #ifndef SD_EXAMPLES_GLOVE_GUI
 #define LOG_WARN(format, ...) log_printf(SD_LOG_WARN, __FILE__, __LINE__, format, ##__VA_ARGS__)

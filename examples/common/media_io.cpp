@@ -261,6 +261,10 @@ uint8_t* decode_webp_image_to_buffer(const uint8_t* data,
     height               = features.height;
     source_channel_count = features.has_alpha ? 4 : 3;
 
+    if (expected_channel == 0) {
+        expected_channel = source_channel_count;
+    }
+
     const size_t pixel_count = static_cast<size_t>(width) * static_cast<size_t>(height);
 
     if (expected_channel == 1) {
@@ -481,7 +485,8 @@ uint8_t* load_image_common(bool from_memory,
                            int& height,
                            int expected_width,
                            int expected_height,
-                           int expected_channel) {
+                           int expected_channel,
+                           int& out_channel) {
     const char* image_path;
     FreeUniquePtr<uint8_t> image_buffer;
     int source_channel_count = 0;
@@ -538,6 +543,32 @@ uint8_t* load_image_common(bool from_memory,
         LOG_ERROR("load image from '%s' failed", image_path);
         return nullptr;
     }
+    if (expected_channel == 0) {
+        expected_channel = source_channel_count == 2 ? 4 : (source_channel_count == 1 ? 3 : source_channel_count);
+        if (expected_channel != source_channel_count) {
+            FreeUniquePtr<uint8_t> promoted((uint8_t*)malloc((size_t)width * height * expected_channel));
+            if (promoted == nullptr) {
+                LOG_ERROR("error: allocate memory for channel promotion, image_path = %s", image_path);
+                return nullptr;
+            }
+            const size_t pixel_count = (size_t)width * (size_t)height;
+            for (size_t i = 0; i < pixel_count; ++i) {
+                if (source_channel_count == 1) {
+                    promoted.get()[i * 3 + 0] = image_buffer.get()[i];
+                    promoted.get()[i * 3 + 1] = image_buffer.get()[i];
+                    promoted.get()[i * 3 + 2] = image_buffer.get()[i];
+                } else {
+                    promoted.get()[i * 4 + 0] = image_buffer.get()[i * 2];
+                    promoted.get()[i * 4 + 1] = image_buffer.get()[i * 2];
+                    promoted.get()[i * 4 + 2] = image_buffer.get()[i * 2];
+                    promoted.get()[i * 4 + 3] = image_buffer.get()[i * 2 + 1];
+                }
+            }
+            image_buffer         = std::move(promoted);
+            source_channel_count = expected_channel;
+        }
+    }
+    // stb reports the source channel count even when it converts the output.
     if (source_channel_count < expected_channel) {
         fprintf(stderr,
                 "the number of channels for the input image must be >= %d,"
@@ -597,7 +628,7 @@ uint8_t* load_image_common(bool from_memory,
         }
         stbir_resize(image_buffer.get(), width, height, 0,
                      resized_image_buffer.get(), expected_width, expected_height, 0, STBIR_TYPE_UINT8,
-                     expected_channel, STBIR_ALPHA_CHANNEL_NONE, 0,
+                     expected_channel, expected_channel == 4 ? 3 : STBIR_ALPHA_CHANNEL_NONE, 0,
                      STBIR_EDGE_CLAMP, STBIR_EDGE_CLAMP,
                      STBIR_FILTER_BOX, STBIR_FILTER_BOX,
                      STBIR_COLORSPACE_SRGB, nullptr);
@@ -605,6 +636,7 @@ uint8_t* load_image_common(bool from_memory,
         height       = expected_height;
         image_buffer = std::move(resized_image_buffer);
     }
+    out_channel = expected_channel;
     return image_buffer.release();
 }
 
@@ -777,10 +809,11 @@ bool write_image_to_file(const std::string& path,
 uint8_t* load_image_from_file(const char* image_path,
                               int& width,
                               int& height,
+                              int& out_channel,
                               int expected_width,
                               int expected_height,
                               int expected_channel) {
-    return load_image_common(false, image_path, 0, width, height, expected_width, expected_height, expected_channel);
+    return load_image_common(false, image_path, 0, width, height, expected_width, expected_height, expected_channel, out_channel);
 }
 
 bool load_sd_image_from_file(sd_image_t* image,
@@ -790,13 +823,14 @@ bool load_sd_image_from_file(sd_image_t* image,
                              int expected_channel) {
     int width;
     int height;
-    image->data = load_image_common(false, image_path, 0, width, height, expected_width, expected_height, expected_channel);
+    int resolved_channel = expected_channel;
+    image->data          = load_image_common(false, image_path, 0, width, height, expected_width, expected_height, expected_channel, resolved_channel);
     if (image->data == nullptr) {
         return false;
     }
     image->width   = width;
     image->height  = height;
-    image->channel = expected_channel;
+    image->channel = resolved_channel;
     return true;
 }
 
@@ -804,13 +838,38 @@ uint8_t* load_image_from_memory(const char* image_bytes,
                                 int len,
                                 int& width,
                                 int& height,
+                                int& out_channel,
                                 int expected_width,
                                 int expected_height,
                                 int expected_channel) {
-    return load_image_common(true, image_bytes, len, width, height, expected_width, expected_height, expected_channel);
+    return load_image_common(true, image_bytes, len, width, height, expected_width, expected_height, expected_channel, out_channel);
 }
 
-std::vector<uint8_t> create_mjpg_avi_from_sd_images_to_vector(sd_image_t* images, int num_images, int fps, int quality, const sd_audio_t* audio) {
+static void append_avi_metadata(std::vector<uint8_t>& data, const std::string& parameters) {
+    if (parameters.empty()) {
+        return;
+    }
+
+    std::vector<uint8_t> info_content;
+
+    write_fourcc(info_content, "INFO");
+
+    const size_t comment_size = parameters.size() + 1;
+    write_fourcc(info_content, "ICMT");
+    write_u32_le(info_content, static_cast<uint32_t>(comment_size));
+    info_content.insert(info_content.end(), parameters.begin(), parameters.end());
+    info_content.push_back(0);
+    if (comment_size & 1u) {
+        info_content.push_back(0);
+    }
+
+    write_fourcc(data, "LIST");
+    write_u32_le(data, static_cast<uint32_t>(info_content.size()));
+    data.insert(data.end(), info_content.begin(), info_content.end());
+    size_t start_pos = data.size();
+}
+
+std::vector<uint8_t> create_mjpg_avi_from_sd_images_to_vector(sd_image_t* images, int num_images, int fps, int quality, const sd_audio_t* audio, const std::string& parameters) {
     if (num_images == 0) {
         fprintf(stderr, "Error: Image array is empty.\n");
         return {};
@@ -834,6 +893,9 @@ std::vector<uint8_t> create_mjpg_avi_from_sd_images_to_vector(sd_image_t* images
     const uint16_t audio_block_align     = has_audio ? static_cast<uint16_t>(audio->channels * (audio_bits_per_sample / 8)) : 0;
     const uint32_t audio_byte_rate       = has_audio ? static_cast<uint32_t>(audio->sample_rate * audio_block_align) : 0;
     const uint32_t audio_data_size       = has_audio ? static_cast<uint32_t>(audio_pcm.size()) : 0;
+
+    if (mjpg_quality != quality)
+        LOG_VERBOSE("create_mjpg_avi...(): compression quality was limited from %i to %i", quality, mjpg_quality);
 
     std::vector<uint8_t> avi_data;
     avi_data.reserve(static_cast<size_t>(num_images) * 1024);
@@ -997,6 +1059,8 @@ std::vector<uint8_t> create_mjpg_avi_from_sd_images_to_vector(sd_image_t* images
     const size_t movi_size = avi_data.size() - movi_size_pos - 4;
     patch_u32_le(avi_data, movi_size_pos, static_cast<uint32_t>(movi_size));
 
+    append_avi_metadata(avi_data, parameters);
+
     write_fourcc(avi_data, "idx1");
     write_u32_le(avi_data, static_cast<uint32_t>(index.size() * 16));
     for (const auto& entry : index) {
@@ -1012,8 +1076,8 @@ std::vector<uint8_t> create_mjpg_avi_from_sd_images_to_vector(sd_image_t* images
     return avi_data;
 }
 
-int create_mjpg_avi_from_sd_images(const char* filename, sd_image_t* images, int num_images, int fps, int quality, const sd_audio_t* audio) {
-    std::vector<uint8_t> avi_data = create_mjpg_avi_from_sd_images_to_vector(images, num_images, fps, quality, audio);
+int create_mjpg_avi_from_sd_images(const char* filename, sd_image_t* images, int num_images, int fps, int quality, const sd_audio_t* audio, const std::string& parameters) {
+    std::vector<uint8_t> avi_data = create_mjpg_avi_from_sd_images_to_vector(images, num_images, fps, quality, audio, parameters);
     if (avi_data.empty()) {
         return -1;
     }
@@ -1143,7 +1207,7 @@ int create_animated_webp_from_sd_images(const char* filename, sd_image_t* images
 #endif
 
 #ifdef SD_USE_WEBM
-std::vector<uint8_t> create_webm_from_sd_images_to_vector(sd_image_t* images, int num_images, int fps, int quality, const sd_audio_t* audio) {
+std::vector<uint8_t> create_webm_from_sd_images_to_vector(sd_image_t* images, int num_images, int fps, int quality, const sd_audio_t* audio, const std::string& parameters) {
     if (num_images == 0) {
         fprintf(stderr, "Error: Image array is empty.\n");
         return {};
@@ -1210,6 +1274,21 @@ std::vector<uint8_t> create_webm_from_sd_images_to_vector(sd_image_t* images, in
         segment.GetSegmentInfo()->set_writing_app("stable-diffusion.cpp");
         segment.GetSegmentInfo()->set_muxing_app("stable-diffusion.cpp");
 
+        LOG_DEBUG("Embedding parameters to metadata: %s", parameters.c_str());
+        if (!parameters.empty()) {
+            mkvmuxer::Tag* tag = segment.AddTag();
+
+            if (tag) {
+                if (!tag->add_simple_tag("COMMENT", parameters.c_str())) {
+                    LOG_WARN("Failed to add COMMENT simple tag.");
+                }
+            } else {
+                LOG_WARN("Failed to add tag to segment.");
+            }
+        } else {
+            LOG_INFO("Paramaters is empty, COMMENT tag not embedded.\n");
+        }
+
         const uint64_t frame_duration_ns = std::max<uint64_t>(
             1, static_cast<uint64_t>(std::llround(1000000000.0 / static_cast<double>(fps))));
         uint64_t timestamp_ns = 0;
@@ -1268,8 +1347,8 @@ std::vector<uint8_t> create_webm_from_sd_images_to_vector(sd_image_t* images, in
     return writer.data();
 }
 
-int create_webm_from_sd_images(const char* filename, sd_image_t* images, int num_images, int fps, int quality, const sd_audio_t* audio) {
-    std::vector<uint8_t> webm_data = create_webm_from_sd_images_to_vector(images, num_images, fps, quality, audio);
+int create_webm_from_sd_images(const char* filename, sd_image_t* images, int num_images, int fps, int quality, const sd_audio_t* audio, const std::string& parameters) {
+    std::vector<uint8_t> webm_data = create_webm_from_sd_images_to_vector(images, num_images, fps, quality, audio, parameters);
     if (webm_data.empty()) {
         return -1;
     }
@@ -1286,7 +1365,8 @@ std::vector<uint8_t> create_video_from_sd_images_to_vector(const std::string& ou
                                                            int num_images,
                                                            int fps,
                                                            int quality,
-                                                           const sd_audio_t* audio) {
+                                                           const sd_audio_t* audio,
+                                                           const std::string& parameters) {
     std::string format = output_format;
     std::transform(format.begin(), format.end(), format.begin(),
                    [](unsigned char c) { return static_cast<char>(tolower(c)); });
@@ -1296,7 +1376,7 @@ std::vector<uint8_t> create_video_from_sd_images_to_vector(const std::string& ou
 
 #ifdef SD_USE_WEBM
     if (format == "webm") {
-        return create_webm_from_sd_images_to_vector(images, num_images, fps, quality, audio);
+        return create_webm_from_sd_images_to_vector(images, num_images, fps, quality, audio, parameters);
     }
 #endif
 
@@ -1306,14 +1386,14 @@ std::vector<uint8_t> create_video_from_sd_images_to_vector(const std::string& ou
     }
 #endif
 
-    return create_mjpg_avi_from_sd_images_to_vector(images, num_images, fps, quality, audio);
+    return create_mjpg_avi_from_sd_images_to_vector(images, num_images, fps, quality, audio, parameters);
 }
 
-int create_video_from_sd_images(const char* filename, sd_image_t* images, int num_images, int fps, int quality, const sd_audio_t* audio) {
+int create_video_from_sd_images(const char* filename, sd_image_t* images, int num_images, int fps, int quality, const sd_audio_t* audio, const std::string& parameters) {
     std::string path                = filename ? filename : "";
     auto pos                        = path.find_last_of('.');
     std::string ext                 = pos == std::string::npos ? "" : path.substr(pos);
-    std::vector<uint8_t> video_data = create_video_from_sd_images_to_vector(ext, images, num_images, fps, quality, audio);
+    std::vector<uint8_t> video_data = create_video_from_sd_images_to_vector(ext, images, num_images, fps, quality, audio, parameters);
     if (video_data.empty()) {
         return -1;
     }
@@ -1373,4 +1453,133 @@ bool write_wav_to_file(const std::string& path,
     }
     file.write(reinterpret_cast<const char*>(pcm.data()), static_cast<std::streamsize>(pcm.size() * sizeof(int16_t)));
     return file.good();
+}
+
+static uint16_t read_le16(const uint8_t* data) {
+    return static_cast<uint16_t>(data[0]) |
+           (static_cast<uint16_t>(data[1]) << 8);
+}
+
+static uint32_t read_le32(const uint8_t* data) {
+    return static_cast<uint32_t>(data[0]) |
+           (static_cast<uint32_t>(data[1]) << 8) |
+           (static_cast<uint32_t>(data[2]) << 16) |
+           (static_cast<uint32_t>(data[3]) << 24);
+}
+
+bool load_wav_from_file(const std::string& path,
+                        std::vector<float>& interleaved_samples,
+                        uint32_t& sample_rate,
+                        uint32_t& channels) {
+    interleaved_samples.clear();
+    sample_rate = 0;
+    channels    = 0;
+
+    std::ifstream file(path, std::ios::binary);
+    uint8_t riff_header[12];
+    if (!file.read(reinterpret_cast<char*>(riff_header), sizeof(riff_header)) ||
+        std::memcmp(riff_header, "RIFF", 4) != 0 ||
+        std::memcmp(riff_header + 8, "WAVE", 4) != 0) {
+        return false;
+    }
+
+    uint16_t audio_format    = 0;
+    uint16_t bits_per_sample = 0;
+    uint16_t block_align     = 0;
+    std::streampos data_pos  = std::streampos(-1);
+    uint32_t data_size       = 0;
+
+    while (file.good()) {
+        uint8_t chunk_header[8];
+        if (!file.read(reinterpret_cast<char*>(chunk_header), sizeof(chunk_header))) {
+            break;
+        }
+        uint32_t chunk_size           = read_le32(chunk_header + 4);
+        std::streampos chunk_data_pos = file.tellg();
+
+        if (std::memcmp(chunk_header, "fmt ", 4) == 0) {
+            if (chunk_size < 16) {
+                return false;
+            }
+            std::vector<uint8_t> fmt(chunk_size);
+            if (!file.read(reinterpret_cast<char*>(fmt.data()), chunk_size)) {
+                return false;
+            }
+            audio_format    = read_le16(fmt.data());
+            channels        = read_le16(fmt.data() + 2);
+            sample_rate     = read_le32(fmt.data() + 4);
+            block_align     = read_le16(fmt.data() + 12);
+            bits_per_sample = read_le16(fmt.data() + 14);
+            if (audio_format == 0xfffe && chunk_size >= 40) {
+                audio_format = read_le16(fmt.data() + 24);
+            }
+        } else if (std::memcmp(chunk_header, "data", 4) == 0) {
+            data_pos  = chunk_data_pos;
+            data_size = chunk_size;
+            file.seekg(chunk_size, std::ios::cur);
+        } else {
+            file.seekg(chunk_size, std::ios::cur);
+        }
+
+        if (!file.good()) {
+            break;
+        }
+        if ((chunk_size & 1) != 0) {
+            file.seekg(1, std::ios::cur);
+        }
+    }
+
+    const uint32_t bytes_per_sample = (bits_per_sample + 7) / 8;
+    if (data_pos == std::streampos(-1) || data_size == 0 || channels == 0 || sample_rate == 0 ||
+        block_align == 0 || bytes_per_sample == 0 || block_align < channels * bytes_per_sample ||
+        (audio_format != 1 && audio_format != 3)) {
+        return false;
+    }
+
+    const uint64_t frame_count = data_size / block_align;
+    if (frame_count == 0 || frame_count > SIZE_MAX / channels) {
+        return false;
+    }
+    std::vector<uint8_t> pcm(data_size);
+    file.clear();
+    file.seekg(data_pos);
+    if (!file.read(reinterpret_cast<char*>(pcm.data()), data_size)) {
+        return false;
+    }
+
+    interleaved_samples.resize(static_cast<size_t>(frame_count * channels));
+    for (uint64_t frame = 0; frame < frame_count; ++frame) {
+        const uint8_t* frame_data = pcm.data() + frame * block_align;
+        for (uint32_t channel = 0; channel < channels; ++channel) {
+            const uint8_t* sample_data = frame_data + channel * bytes_per_sample;
+            float sample               = 0.0f;
+            if (audio_format == 3 && bits_per_sample == 32) {
+                std::memcpy(&sample, sample_data, sizeof(sample));
+            } else if (audio_format == 3 && bits_per_sample == 64) {
+                double value;
+                std::memcpy(&value, sample_data, sizeof(value));
+                sample = static_cast<float>(value);
+            } else if (audio_format == 1 && bits_per_sample == 8) {
+                sample = (static_cast<int>(sample_data[0]) - 128) / 128.0f;
+            } else if (audio_format == 1 && bits_per_sample == 16) {
+                sample = static_cast<int16_t>(read_le16(sample_data)) / 32768.0f;
+            } else if (audio_format == 1 && bits_per_sample == 24) {
+                int32_t value = static_cast<int32_t>(sample_data[0]) |
+                                (static_cast<int32_t>(sample_data[1]) << 8) |
+                                (static_cast<int32_t>(sample_data[2]) << 16);
+                if ((value & 0x800000) != 0) {
+                    value |= ~0xffffff;
+                }
+                sample = value / 8388608.0f;
+            } else if (audio_format == 1 && bits_per_sample == 32) {
+                int32_t value = static_cast<int32_t>(read_le32(sample_data));
+                sample        = value / 2147483648.0f;
+            } else {
+                interleaved_samples.clear();
+                return false;
+            }
+            interleaved_samples[static_cast<size_t>(frame * channels + channel)] = sample;
+        }
+    }
+    return true;
 }

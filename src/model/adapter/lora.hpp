@@ -2,7 +2,13 @@
 #define __SD_MODEL_ADAPTER_LORA_HPP__
 
 #include <mutex>
-#include "core/ggml_extend.hpp"
+#include "core/ggml_extend.h"
+#include "core/ggml_extend_backend.h"
+#include "core/ggml_runner.h"
+#include "core/ggml_tensor_utils.h"
+#include "core/util.h"
+#include "model.h"
+#include "model/adapter/lora_ops.h"
 #include "model_loader.h"
 #include "model_manager.h"
 
@@ -14,26 +20,34 @@ struct LoraModel : public GGMLRunner {
     std::unordered_map<std::string, ggml_tensor*> lora_tensors;
     std::map<ggml_tensor*, ggml_tensor*> original_tensor_to_final_tensor;
     std::set<std::string> applied_lora_tensors;
+    std::set<std::string> skipped_incompatible_lora_tensors;
+    std::set<std::string> warned_incompatible_model_tensors;
     std::string file_path;
-    std::shared_ptr<ModelManager> model_manager;
-    ggml_backend_t params_backend = nullptr;
-    bool load_failed              = false;
-    bool applied                  = false;
-    bool tensor_preprocessed      = false;
+    ggml_backend_t params_backend              = nullptr;
+    bool load_failed                           = false;
+    bool applied                               = false;
+    bool tensor_preprocessed                   = false;
+    ModelLoader::FileId source_file            = 0;
+    SDVersion source_version                   = VERSION_COUNT;
+    ModelManager::ResidencyMode residency_mode = ModelManager::ResidencyMode::ParamBackend;
+    bool params_follow_compute                 = false;
+    std::vector<ggml_tensor*> registered_params;
+    std::map<ggml_tensor*, float> scalar_values;
 
     typedef std::function<bool(const std::string&)> filter_t;
 
-    LoraModel(const std::string& lora_id,
-              ggml_backend_t backend,
-              ggml_backend_t params_backend_,
-              const std::string& file_path          = "",
-              std::string prefix                    = "",
-              SDVersion version                     = VERSION_COUNT,
-              std::shared_ptr<ModelManager> manager = std::make_shared<ModelManager>())
-        : GGMLRunner(backend, manager), lora_id(lora_id), file_path(file_path), model_manager(std::move(manager)), params_backend(params_backend_) {
-        prefix = "lora." + prefix;
-        if (model_manager == nullptr || !model_manager->loader().init_from_file_and_convert_name(file_path, prefix, version)) {
-            load_failed = true;
+    LoraModel(const std::string& id, ggml_backend_t backend, ggml_backend_t params, std::shared_ptr<ModelManager> manager, ModelLoader::FileId file, SDVersion version, ModelManager::ResidencyMode mode = ModelManager::ResidencyMode::ParamBackend, bool follow_compute = false)
+        : GGMLRunner(backend, manager), lora_id(id), params_backend(params), source_file(file), source_version(version), residency_mode(mode), params_follow_compute(follow_compute) {
+        load_failed = source_file == 0 || manager == nullptr || manager->loader().file_revision(source_file) == 0;
+        if (!load_failed) {
+            file_path = manager->loader().file_path(source_file);
+        }
+    }
+
+    ~LoraModel() override {
+        runner_end();
+        if (auto manager = std::dynamic_pointer_cast<ModelManager>(residency_manager.lock())) {
+            GGML_ASSERT(manager->unregister_param_tensors(registered_params));
         }
     }
 
@@ -41,98 +55,69 @@ struct LoraModel : public GGMLRunner {
         return "lora";
     }
 
-    bool load_from_file(int n_threads, filter_t filter = nullptr) {
-        LOG_INFO("loading LoRA from '%s'", file_path.c_str());
-
-        if (load_failed) {
-            LOG_ERROR("init lora model loader from file failed: '%s'", file_path.c_str());
+    bool init_params(int n_threads, filter_t filter = nullptr) {
+        auto model_manager = std::dynamic_pointer_cast<ModelManager>(residency_manager.lock());
+        if (model_manager == nullptr)
             return false;
-        }
-
-        std::unordered_map<std::string, TensorStorage> tensors_to_create;
-        std::mutex lora_mutex;
-        bool dry_run          = true;
-        auto on_new_tensor_cb = [&](const TensorStorage& tensor_storage, ggml_tensor** dst_tensor) -> bool {
-            if (dry_run) {
-                const std::string& name = tensor_storage.name;
-
-                if (filter && !filter(name)) {
-                    return true;
-                }
-
-                {
-                    std::lock_guard<std::mutex> lock(lora_mutex);
-                    tensors_to_create[name] = tensor_storage;
-                }
-            } else {
-                const std::string& name = tensor_storage.name;
-                auto iter               = lora_tensors.find(name);
-                if (iter != lora_tensors.end()) {
-                    *dst_tensor = iter->second;
-                }
-            }
-            return true;
-        };
-
-        if (model_manager != nullptr) {
-            model_manager->set_n_threads(n_threads);
-        }
-        ModelLoader& model_loader = model_manager->loader();
-        model_loader.load_tensors(on_new_tensor_cb);
-
-        if (tensors_to_create.empty()) {
-            return true;
-        }
-
-        for (const auto& pair : tensors_to_create) {
-            const auto& name   = pair.first;
-            const auto& ts     = pair.second;
-            ggml_tensor* real  = ggml_new_tensor(params_ctx,
-                                                 ts.type,
-                                                 ts.n_dims,
-                                                 ts.ne);
-            lora_tensors[name] = real;
-        }
-
+        if (load_failed || !registered_params.empty())
+            return false;
+        model_manager->set_n_threads(n_threads);
+        const auto sources = model_manager->loader().file_tensors(source_file, source_version);
         std::map<std::string, ggml_tensor*> tensors;
-        for (const auto& pair : lora_tensors) {
-            tensors[pair.first] = pair.second;
+        std::map<std::string, ggml_tensor*> scalars;
+        std::set<std::string> scalar_names;
+        for (const auto& [name, source] : sources) {
+            if (filter && !filter(name))
+                continue;
+            const bool scalar  = source.nelements() == 1 && (ends_with(name, ".alpha") || ends_with(name, ".scale"));
+            auto* tensor       = ggml_new_tensor(params_ctx, scalar ? GGML_TYPE_F32 : source.type, source.n_dims, source.ne);
+            lora_tensors[name] = tensor;
+            if (scalar) {
+                tensor->data  = &scalar_values[tensor];
+                scalars[name] = tensor;
+                scalar_names.insert(name);
+            } else {
+                tensors[name] = tensor;
+            }
         }
-        if (model_manager == nullptr ||
-            !model_manager->register_param_tensors("LoRA",
-                                                   std::move(tensors),
-                                                   ModelManager::ResidencyMode::ParamBackend,
-                                                   runtime_backend,
-                                                   params_backend) ||
-            !model_manager->validate_registered_tensors()) {
-            LOG_ERROR("lora model manager registration failed");
+        // These values are consumed while constructing the graph, before weight preparation.
+        if (!scalars.empty()) {
+            auto callback = [&](const TensorStorage& source, ggml_tensor** dst) {
+                auto found = scalars.find(source.name);
+                *dst       = found == scalars.end() ? nullptr : found->second;
+                return true;
+            };
+            if (!model_manager->loader().load_file_tensors(source_file, source_version, callback, scalar_names))
+                return false;
+        }
+        if (!model_manager->register_param_tensors(ModelComponent::LoRA, tensors, residency_mode,
+                                                   runtime_backend, params_backend, nullptr, false, params_follow_compute,
+                                                   nullptr, source_file, source_version))
             return false;
-        }
-        std::vector<ggml_tensor*> lora_params;
-        lora_params.reserve(lora_tensors.size());
-        for (const auto& pair : lora_tensors) {
-            lora_params.push_back(pair.second);
-        }
-        if (!model_manager->prepare_params(lora_params)) {
-            LOG_ERROR("lora model manager prepare params failed");
-            return false;
-        }
+        for (const auto& entry : tensors)
+            registered_params.push_back(entry.second);
+        return model_manager->validate_registered_tensors();
+    }
 
-        LOG_DEBUG("finished loaded lora");
-        return true;
+    float scalar_value(ggml_tensor* tensor) const {
+        auto found = scalar_values.find(tensor);
+        return found != scalar_values.end() ? found->second : ggml_ext_backend_tensor_get_f32(tensor);
     }
 
     void release_loaded_tensors() {
-        runner_done();
-        free_compute_buffer();
-        model_manager.reset();
+        runner_end();
+        if (auto manager = std::dynamic_pointer_cast<ModelManager>(residency_manager.lock())) {
+            GGML_ASSERT(manager->unregister_param_tensors(registered_params));
+        }
+        registered_params.clear();
         free_params_ctx();
         alloc_params_ctx();
-        model_manager  = std::make_shared<ModelManager>();
-        weight_manager = model_manager;
         lora_tensors.clear();
+        scalar_values.clear();
         original_tensor_to_final_tensor.clear();
         applied_lora_tensors.clear();
+        skipped_incompatible_lora_tensors.clear();
+        warned_incompatible_model_tensors.clear();
         applied             = false;
         tensor_preprocessed = false;
     }
@@ -178,6 +163,27 @@ struct LoraModel : public GGMLRunner {
 
             lora_tensors = std::move(new_lora_tensors);
         }
+
+        std::unordered_map<std::string, ggml_tensor*> new_lora_tensors;
+        for (const auto& [old_name, tensor] : lora_tensors) {
+            std::string new_name = old_name;
+            if (starts_with(old_name, "lora.model.diffusion_model.transformer_blocks.")) {
+                // Qwen Image 2.1 stores the gate before the projection in fused MLP weights.
+                for (const auto& suffix : {std::string(".img_mlp.gate_layer.weight."), std::string(".img_mlp.proj.weight.")}) {
+                    size_t pos = old_name.find(suffix);
+                    if (pos == std::string::npos) {
+                        continue;
+                    }
+                    std::string fused_name = old_name.substr(5, pos - 5) + ".img_mlp.gate_up.weight";
+                    if (model_tensor_names.find(fused_name) != model_tensor_names.end()) {
+                        new_name = "lora." + fused_name + (suffix == ".img_mlp.proj.weight." ? ".1." : ".") + old_name.substr(pos + suffix.size());
+                    }
+                    break;
+                }
+            }
+            new_lora_tensors[new_name] = tensor;
+        }
+        lora_tensors = std::move(new_lora_tensors);
     }
 
     ggml_tensor* get_lora_weight_diff(const std::string& model_tensor_name, ggml_context* ctx, ggml_backend_t backend) {
@@ -232,14 +238,14 @@ struct LoraModel : public GGMLRunner {
             int64_t rank = lora_down->ne[ggml_n_dims(lora_down) - 1];
             iter         = lora_tensors.find(scale_name);
             if (iter != lora_tensors.end()) {
-                scale_value = ggml_ext_backend_tensor_get_f32(iter->second);
+                scale_value = scalar_value(iter->second);
                 applied_lora_tensors.insert(scale_name);
             } else {
                 iter = lora_tensors.find(alpha_name);
                 if (iter != lora_tensors.end()) {
-                    float alpha = ggml_ext_backend_tensor_get_f32(iter->second);
+                    float alpha = scalar_value(iter->second);
                     scale_value = alpha / rank;
-                    // LOG_DEBUG("rank %s %ld %.2f %.2f", alpha_name.c_str(), rank, alpha, scale_value);
+                    // LOG_VERBOSE("rank %s %ld %.2f %.2f", alpha_name.c_str(), rank, alpha, scale_value);
                     applied_lora_tensors.insert(alpha_name);
                 }
             }
@@ -338,7 +344,9 @@ struct LoraModel : public GGMLRunner {
             iter = lora_tensors.find(hada_1_mid_name);
             if (iter != lora_tensors.end()) {
                 hada_1_mid = ggml_ext_cast_f32(ctx, backend, iter->second);
-                hada_1_up  = ggml_cont(ctx, ggml_transpose(ctx, hada_1_up));
+                if (hada_1_up != nullptr) {
+                    hada_1_up = ggml_cont(ctx, ggml_transpose(ctx, hada_1_up));
+                }
             }
 
             iter = lora_tensors.find(hada_2_down_name);
@@ -354,7 +362,9 @@ struct LoraModel : public GGMLRunner {
             iter = lora_tensors.find(hada_2_mid_name);
             if (iter != lora_tensors.end()) {
                 hada_2_mid = ggml_ext_cast_f32(ctx, backend, iter->second);
-                hada_2_up  = ggml_cont(ctx, ggml_transpose(ctx, hada_2_up));
+                if (hada_2_up != nullptr) {
+                    hada_2_up = ggml_cont(ctx, ggml_transpose(ctx, hada_2_up));
+                }
             }
 
             if (hada_1_up == nullptr || hada_1_down == nullptr || hada_2_up == nullptr || hada_2_down == nullptr) {
@@ -382,7 +392,7 @@ struct LoraModel : public GGMLRunner {
             int64_t rank = hada_1_down->ne[ggml_n_dims(hada_1_down) - 1];
             iter         = lora_tensors.find(alpha_name);
             if (iter != lora_tensors.end()) {
-                float alpha = ggml_ext_backend_tensor_get_f32(iter->second);
+                float alpha = scalar_value(iter->second);
                 scale_value = alpha / rank;
                 applied_lora_tensors.insert(alpha_name);
             }
@@ -495,7 +505,7 @@ struct LoraModel : public GGMLRunner {
             float scale_value = 1.0f;
             iter              = lora_tensors.find(alpha_name);
             if (iter != lora_tensors.end()) {
-                float alpha = ggml_ext_backend_tensor_get_f32(iter->second);
+                float alpha = scalar_value(iter->second);
                 scale_value = alpha / rank;
                 applied_lora_tensors.insert(alpha_name);
             }
@@ -546,7 +556,27 @@ struct LoraModel : public GGMLRunner {
                 }
             }
 
-            GGML_ASSERT(ggml_nelements(diff) == ggml_nelements(model_tensor));
+            if (ggml_nelements(diff) != ggml_nelements(model_tensor)) {
+                const std::string lora_tensor_prefix = "lora." + model_tensor_name + ".";
+                for (const auto& tensor_name : applied_lora_tensors) {
+                    if (starts_with(tensor_name, lora_tensor_prefix)) {
+                        skipped_incompatible_lora_tensors.insert(tensor_name);
+                    }
+                }
+                if (warned_incompatible_model_tensors.insert(model_tensor_name).second) {
+                    LOG_WARN("skip incompatible LoRA tensor |%s|: model shape = [%lld, %lld, %lld, %lld], LoRA shape = [%lld, %lld, %lld, %lld]",
+                             model_tensor_name.c_str(),
+                             static_cast<long long>(model_tensor->ne[0]),
+                             static_cast<long long>(model_tensor->ne[1]),
+                             static_cast<long long>(model_tensor->ne[2]),
+                             static_cast<long long>(model_tensor->ne[3]),
+                             static_cast<long long>(diff->ne[0]),
+                             static_cast<long long>(diff->ne[1]),
+                             static_cast<long long>(diff->ne[2]),
+                             static_cast<long long>(diff->ne[3]));
+                }
+                return nullptr;
+            }
             diff = ggml_reshape(ctx, diff, model_tensor);
         }
         return diff;
@@ -555,10 +585,15 @@ struct LoraModel : public GGMLRunner {
     ggml_tensor* get_out_diff(ggml_context* ctx,
                               ggml_backend_t backend,
                               ggml_tensor* x,
+                              ggml_tensor* model_weight,
                               WeightAdapter::ForwardParams forward_params,
                               const std::string& model_tensor_name) {
         ggml_tensor* out_diff = nullptr;
         int index             = 0;
+
+        std::vector<std::string> used_tensors;
+        bool is_conv2d = forward_params.op_type == WeightAdapter::ForwardParams::op_type_t::OP_CONV2D;
+
         while (true) {
             std::string key;
             if (index == 0) {
@@ -566,7 +601,6 @@ struct LoraModel : public GGMLRunner {
             } else {
                 key = model_tensor_name + "." + std::to_string(index);
             }
-            bool is_conv2d = forward_params.op_type == WeightAdapter::ForwardParams::op_type_t::OP_CONV2D;
 
             std::string lokr_w1_name   = "lora." + key + ".lokr_w1";
             std::string lokr_w1_a_name = "lora." + key + ".lokr_w1_a";
@@ -632,9 +666,8 @@ struct LoraModel : public GGMLRunner {
                 float scale_value = 1.0f;
                 iter              = lora_tensors.find(alpha_name);
                 if (iter != lora_tensors.end()) {
-                    float alpha = ggml_ext_backend_tensor_get_f32(iter->second);
+                    float alpha = scalar_value(iter->second);
                     scale_value = alpha / rank;
-                    applied_lora_tensors.insert(alpha_name);
                 }
 
                 if (rank == 1) {
@@ -649,19 +682,27 @@ struct LoraModel : public GGMLRunner {
                     out_diff = ggml_concat(ctx, out_diff, curr_out_diff, 0);
                 }
 
-                if (lokr_w1)
-                    applied_lora_tensors.insert(lokr_w1_name);
-                if (lokr_w1_a)
-                    applied_lora_tensors.insert(lokr_w1_a_name);
-                if (lokr_w1_b)
-                    applied_lora_tensors.insert(lokr_w1_b_name);
-                if (lokr_w2)
-                    applied_lora_tensors.insert(lokr_w2_name);
-                if (lokr_w2_a)
-                    applied_lora_tensors.insert(lokr_w2_a_name);
-                if (lokr_w2_b)
-                    applied_lora_tensors.insert(lokr_w2_b_name);
-                applied_lora_tensors.insert(alpha_name);
+                if (lokr_w1) {
+                    used_tensors.push_back(lokr_w1_name);
+                }
+                if (lokr_w1_a) {
+                    used_tensors.push_back(lokr_w1_a_name);
+                }
+                if (lokr_w1_b) {
+                    used_tensors.push_back(lokr_w1_b_name);
+                }
+                if (lokr_w2) {
+                    used_tensors.push_back(lokr_w2_name);
+                }
+                if (lokr_w2_a) {
+                    used_tensors.push_back(lokr_w2_a_name);
+                }
+                if (lokr_w2_b) {
+                    used_tensors.push_back(lokr_w2_b_name);
+                }
+                if (iter != lora_tensors.end()) {
+                    used_tensors.push_back(alpha_name);
+                }
 
                 index++;
                 continue;
@@ -707,27 +748,60 @@ struct LoraModel : public GGMLRunner {
                 break;
             }
 
-            applied_lora_tensors.insert(lora_up_name);
-            applied_lora_tensors.insert(lora_down_name);
+            if (!is_conv2d) {
+                const int64_t down_in  = lora_down->ne[0];
+                const int64_t down_out = lora_down->ne[1];
+                const int64_t up_in    = lora_up->ne[0];
 
-            if (lora_mid) {
-                applied_lora_tensors.insert(lora_mid_name);
+                bool compatible = down_in == model_weight->ne[0];
+                if (lora_mid != nullptr) {
+                    compatible = compatible &&
+                                 lora_mid->ne[0] == down_out &&
+                                 up_in == lora_mid->ne[1];
+                } else {
+                    compatible = compatible && up_in == down_out;
+                }
+
+                if (!compatible) {
+                    skipped_incompatible_lora_tensors.insert(lora_down_name);
+                    skipped_incompatible_lora_tensors.insert(lora_up_name);
+                    if (lora_mid != nullptr) {
+                        skipped_incompatible_lora_tensors.insert(lora_mid_name);
+                    }
+                    if (lora_tensors.find(scale_name) != lora_tensors.end()) {
+                        skipped_incompatible_lora_tensors.insert(scale_name);
+                    } else if (lora_tensors.find(alpha_name) != lora_tensors.end()) {
+                        skipped_incompatible_lora_tensors.insert(alpha_name);
+                    }
+                    if (warned_incompatible_model_tensors.insert(model_tensor_name).second) {
+                        LOG_WARN("skip incompatible LoRA tensor |%s|: model input dim = %lld, down shape = [%lld, %lld], up shape = [%lld, %lld]",
+                                 model_tensor_name.c_str(),
+                                 static_cast<long long>(model_weight->ne[0]),
+                                 static_cast<long long>(down_in),
+                                 static_cast<long long>(down_out),
+                                 static_cast<long long>(up_in),
+                                 static_cast<long long>(lora_up->ne[1]));
+                    }
+                    index++;
+                    continue;
+                }
             }
 
             float scale_value = 1.0f;
+            std::string scale_tensor_name;
 
             int64_t rank = lora_down->ne[ggml_n_dims(lora_down) - 1];
             iter         = lora_tensors.find(scale_name);
             if (iter != lora_tensors.end()) {
-                scale_value = ggml_ext_backend_tensor_get_f32(iter->second);
-                applied_lora_tensors.insert(scale_name);
+                scale_value       = scalar_value(iter->second);
+                scale_tensor_name = scale_name;
             } else {
                 iter = lora_tensors.find(alpha_name);
                 if (iter != lora_tensors.end()) {
-                    float alpha = ggml_ext_backend_tensor_get_f32(iter->second);
-                    scale_value = alpha / rank;
-                    // LOG_DEBUG("rank %s %ld %.2f %.2f", alpha_name.c_str(), rank, alpha, scale_value);
-                    applied_lora_tensors.insert(alpha_name);
+                    float alpha       = scalar_value(iter->second);
+                    scale_value       = alpha / rank;
+                    scale_tensor_name = alpha_name;
+                    // LOG_VERBOSE("rank %s %ld %.2f %.2f", alpha_name.c_str(), rank, alpha, scale_value);
                 }
             }
             scale_value *= multiplier;
@@ -787,15 +861,45 @@ struct LoraModel : public GGMLRunner {
             }
 
             auto curr_out_diff = ggml_ext_scale(ctx, lx, scale_value, true);
-
             if (out_diff == nullptr) {
                 out_diff = curr_out_diff;
             } else {
-                out_diff = ggml_concat(ctx, out_diff, curr_out_diff, 0);
+                out_diff = ggml_concat(ctx, out_diff, curr_out_diff, is_conv2d ? 2 : 0);
+            }
+
+            used_tensors.push_back(lora_up_name);
+            used_tensors.push_back(lora_down_name);
+            if (lora_mid) {
+                used_tensors.push_back(lora_mid_name);
+            }
+            if (!scale_tensor_name.empty()) {
+                used_tensors.push_back(scale_tensor_name);
             }
 
             index++;
         }
+
+        if (out_diff == nullptr)
+            return nullptr;
+
+        int64_t expected_out_dim = is_conv2d ? model_weight->ne[3] : model_weight->ne[1];
+        int64_t actual_out_dim   = out_diff->ne[is_conv2d ? 2 : 0];
+
+        if (actual_out_dim != expected_out_dim) {
+            for (const auto& name : used_tensors) {
+                skipped_incompatible_lora_tensors.insert(name);
+            }
+            if (warned_incompatible_model_tensors.insert(model_tensor_name).second) {
+                LOG_WARN("skip incompatible LoRA tensors for |%s|: output dim %lld != model dim %lld",
+                         model_tensor_name.c_str(), actual_out_dim, expected_out_dim);
+            }
+            return nullptr;
+        }
+
+        for (const auto& name : used_tensors) {
+            applied_lora_tensors.insert(name);
+        }
+
         return out_diff;
     }
 
@@ -842,7 +946,7 @@ struct LoraModel : public GGMLRunner {
         return gf;
     }
 
-    void apply(std::map<std::string, ggml_tensor*> model_tensors,
+    bool apply(std::map<std::string, ggml_tensor*> model_tensors,
                const std::set<std::string>& model_tensor_names,
                SDVersion version,
                int n_threads,
@@ -850,29 +954,36 @@ struct LoraModel : public GGMLRunner {
         auto get_graph = [&]() -> ggml_cgraph* {
             return build_lora_graph(model_tensors, model_tensor_names, version);
         };
-        GGMLRunner::compute<float>(get_graph, n_threads, false, false, false, true);
-        stat(!warn_unused);
-        for (auto item : original_tensor_to_final_tensor) {
-            ggml_tensor* original_tensor = item.first;
-            ggml_tensor* final_tensor    = item.second;
-
-            ggml_backend_tensor_copy(final_tensor, original_tensor);
+        auto read_outputs = [&]() {
+            for (const auto& item : original_tensor_to_final_tensor) {
+                ggml_backend_tensor_copy(item.second, item.first);
+            }
+            return true;
+        };
+        auto result = GGMLRunner::compute(get_graph, n_threads, false, true, read_outputs);
+        if (!result.has_value()) {
+            LOG_ERROR("LoRA graph execution failed");
         }
+        stat(!warn_unused);
         original_tensor_to_final_tensor.clear();
-        GGMLRunner::free_compute_buffer();
+        runner_end();
+        return result.has_value();
     }
 
-    void apply(std::map<std::string, ggml_tensor*> model_tensors, SDVersion version, int n_threads, bool warn_unused = true) {
-        apply(model_tensors, tensor_names(model_tensors), version, n_threads, warn_unused);
+    bool apply(std::map<std::string, ggml_tensor*> model_tensors, SDVersion version, int n_threads, bool warn_unused = true) {
+        return apply(model_tensors, tensor_names(model_tensors), version, n_threads, warn_unused);
     }
 
     void stat(bool at_runntime = false) {
         size_t total_lora_tensors_count   = 0;
         size_t applied_lora_tensors_count = 0;
+        size_t skipped_lora_tensors_count = 0;
 
         for (auto& kv : lora_tensors) {
             total_lora_tensors_count++;
-            if (applied_lora_tensors.find(kv.first) == applied_lora_tensors.end()) {
+            if (skipped_incompatible_lora_tensors.find(kv.first) != skipped_incompatible_lora_tensors.end()) {
+                skipped_lora_tensors_count++;
+            } else if (applied_lora_tensors.find(kv.first) == applied_lora_tensors.end()) {
                 if (!at_runntime) {
                     LOG_WARN("unused lora tensor |%s|", kv.first.c_str());
                     print_ggml_tensor(kv.second, true);
@@ -884,12 +995,17 @@ struct LoraModel : public GGMLRunner {
         /* Don't worry if this message shows up twice in the logs per LoRA,
          * this function is called once to calculate the required buffer size
          * and then again to actually generate a graph to be used */
-        if (!at_runntime && applied_lora_tensors_count != total_lora_tensors_count) {
+        size_t compatible_lora_tensors_count = total_lora_tensors_count - skipped_lora_tensors_count;
+        if (!at_runntime && applied_lora_tensors_count != compatible_lora_tensors_count) {
             LOG_WARN("Only (%lu / %lu) LoRA tensors have been applied, lora_file_path = %s",
-                     applied_lora_tensors_count, total_lora_tensors_count, file_path.c_str());
+                     applied_lora_tensors_count, compatible_lora_tensors_count, file_path.c_str());
         } else {
             LOG_INFO("(%lu / %lu) LoRA tensors have been applied, lora_file_path = %s",
-                     applied_lora_tensors_count, total_lora_tensors_count, file_path.c_str());
+                     applied_lora_tensors_count, compatible_lora_tensors_count, file_path.c_str());
+        }
+        if (skipped_lora_tensors_count > 0) {
+            LOG_WARN("(%lu / %lu) incompatible LoRA tensors have been skipped, lora_file_path = %s",
+                     skipped_lora_tensors_count, total_lora_tensors_count, file_path.c_str());
         }
     }
 };
@@ -953,13 +1069,41 @@ public:
                                    forward_params.conv2d.scale);
         }
         for (auto& lora_model : lora_models) {
-            ggml_tensor* out_diff = lora_model->get_out_diff(ctx, backend, x, forward_params, prefix + "weight");
+            ggml_tensor* out_diff = lora_model->get_out_diff(ctx, backend, x, w, forward_params, prefix + "weight");
             if (out_diff == nullptr) {
                 continue;
             }
             out = ggml_add_inplace(ctx, out, out_diff);
         }
         return out;
+    }
+
+    ggml_tensor* add_lora_to_output(ggml_context* ctx,
+                                    ggml_backend_t backend,
+                                    ggml_tensor* x,
+                                    ggml_tensor* w,
+                                    ggml_tensor* output,
+                                    const std::string& prefix,
+                                    WeightAdapter::ForwardParams forward_params) override {
+        for (auto& lora_model : lora_models) {
+            ggml_tensor* weight_diff = lora_model->get_weight_diff(prefix + "weight", backend, ctx, w, false);
+            if (weight_diff != nullptr) {
+                GGML_ASSERT(forward_params.op_type == ForwardParams::op_type_t::OP_LINEAR);
+                ggml_tensor* out_diff = ggml_ext_linear(ctx,
+                                                        x,
+                                                        weight_diff,
+                                                        nullptr,
+                                                        forward_params.linear.force_prec_f32,
+                                                        forward_params.linear.scale);
+                output                = ggml_add_inplace(ctx, output, out_diff);
+            }
+
+            ggml_tensor* out_diff = lora_model->get_out_diff(ctx, backend, x, w, forward_params, prefix + "weight");
+            if (out_diff != nullptr) {
+                output = ggml_add_inplace(ctx, output, out_diff);
+            }
+        }
+        return output;
     }
 
     size_t get_extra_graph_size() override {

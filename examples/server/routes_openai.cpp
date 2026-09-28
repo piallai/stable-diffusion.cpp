@@ -157,42 +157,46 @@ static bool build_openai_edit_request(const httplib::Request& req,
     request.gen_params.height      = height;
     request.gen_params.batch_count = n;
 
+    std::string sd_cpp_extra_args_str = extract_and_remove_sd_cpp_extra_args(request.gen_params.prompt);
     for (auto& bytes : images_bytes) {
-        int img_w           = 0;
-        int img_h           = 0;
-        uint8_t* raw_pixels = load_image_from_memory(
-            reinterpret_cast<const char*>(bytes.data()),
-            static_cast<int>(bytes.size()),
-            img_w, img_h,
-            width, height, 3);
+        int img_w            = 0;
+        int img_h            = 0;
+        int resolved_channel = 0;
+        uint8_t* raw_pixels  = load_image_from_memory(
+             reinterpret_cast<const char*>(bytes.data()),
+             static_cast<int>(bytes.size()),
+             img_w, img_h, resolved_channel,
+             0, 0,
+             0);
         if (raw_pixels == nullptr) {
             continue;
         }
 
-        SDImageOwner image_owner({(uint32_t)img_w, (uint32_t)img_h, 3, raw_pixels});
+        const bool is_first_ref_image = request.gen_params.ref_images.empty();
+        SDImageOwner image_owner({(uint32_t)img_w, (uint32_t)img_h, (uint32_t)resolved_channel, raw_pixels});
         request.gen_params.set_width_and_height_if_unset(image_owner.get().width, image_owner.get().height);
+
+        if (is_first_ref_image) {
+            request.gen_params.init_image = image_owner;
+            if (request.gen_params.init_image.get().data == nullptr) {
+                error_message = "could not allocate init image";
+                return false;
+            }
+        }
+
         request.gen_params.ref_images.push_back(std::move(image_owner));
     }
 
-    if (!request.gen_params.ref_images.empty()) {
-        request.gen_params.init_image = request.gen_params.ref_images.front();
-    }
-
     if (!mask_bytes.empty()) {
-        int expected_width  = 0;
-        int expected_height = 0;
-        if (request.gen_params.width_and_height_are_set()) {
-            expected_width  = request.gen_params.width;
-            expected_height = request.gen_params.height;
-        }
-        int mask_w = 0;
-        int mask_h = 0;
+        int mask_w       = 0;
+        int mask_h       = 0;
+        int mask_channel = 0;
 
         uint8_t* mask_raw = load_image_from_memory(
             reinterpret_cast<const char*>(mask_bytes.data()),
             static_cast<int>(mask_bytes.size()),
-            mask_w, mask_h,
-            expected_width, expected_height, 1);
+            mask_w, mask_h, mask_channel,
+            0, 0, 1);
         request.gen_params.mask_image.reset({(uint32_t)mask_w, (uint32_t)mask_h, 1, mask_raw});
         const sd_image_t& mask_image = request.gen_params.mask_image.get();
         request.gen_params.set_width_and_height_if_unset(mask_image.width, mask_image.height);
@@ -205,7 +209,6 @@ static bool build_openai_edit_request(const httplib::Request& req,
         });
     }
 
-    std::string sd_cpp_extra_args_str = extract_and_remove_sd_cpp_extra_args(request.gen_params.prompt);
     if (!sd_cpp_extra_args_str.empty() && !request.gen_params.from_json_str(sd_cpp_extra_args_str)) {
         error_message = "invalid sd_cpp_extra_args";
         return false;
@@ -229,8 +232,11 @@ static bool execute_sync_img_gen_request(ServerRuntime& runtime,
 
     {
         std::lock_guard<std::mutex> lock(*runtime.sd_ctx_mutex);
-        sd_image_t* raw_results = generate_image(runtime.sd_ctx, &img_gen_params);
-        num_results             = request.gen_params.batch_count;
+        sd_image_t* raw_results = nullptr;
+        if (!generate_image(runtime.sd_ctx, &img_gen_params, &raw_results, &num_results)) {
+            raw_results = nullptr;
+            num_results = 0;
+        }
         results.adopt(raw_results, num_results);
     }
 
@@ -267,7 +273,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
                 return;
             }
 
-            LOG_DEBUG("%s\n", request.gen_params.to_string().c_str());
+            LOG_VERBOSE("%s\n", request.gen_params.to_string().c_str());
 
             SDImageVec results;
             if (!execute_sync_img_gen_request(*runtime, request, results, error_message)) {
@@ -281,14 +287,16 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
             out["data"]          = json::array();
             out["output_format"] = request.output_format;
 
-            for (int i = 0; i < request.gen_params.batch_count; ++i) {
+            int result_count     = results.count();
+            int images_per_batch = request.gen_params.batch_count > 0 ? std::max(1, result_count / request.gen_params.batch_count) : 1;
+            for (int i = 0; i < result_count; ++i) {
                 if (results[i].data == nullptr) {
                     continue;
                 }
                 std::string params = request.gen_params.embed_image_metadata
                                          ? get_image_params(*runtime->ctx_params,
                                                             request.gen_params,
-                                                            request.gen_params.seed + i)
+                                                            request.gen_params.seed + i / images_per_batch)
                                          : "";
                 auto image_bytes   = encode_image_to_vector(request.output_format == "jpeg"
                                                                 ? EncodedImageFormat::JPEG
@@ -339,7 +347,7 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
                 return;
             }
 
-            LOG_DEBUG("%s\n", request.gen_params.to_string().c_str());
+            LOG_VERBOSE("%s\n", request.gen_params.to_string().c_str());
 
             SDImageVec results;
             if (!execute_sync_img_gen_request(*runtime, request, results, error_message)) {
@@ -353,14 +361,16 @@ void register_openai_api_endpoints(httplib::Server& svr, ServerRuntime& rt) {
             out["data"]          = json::array();
             out["output_format"] = request.output_format;
 
-            for (int i = 0; i < request.gen_params.batch_count; ++i) {
+            int result_count     = results.count();
+            int images_per_batch = request.gen_params.batch_count > 0 ? std::max(1, result_count / request.gen_params.batch_count) : 1;
+            for (int i = 0; i < result_count; ++i) {
                 if (results[i].data == nullptr) {
                     continue;
                 }
                 std::string params = request.gen_params.embed_image_metadata
                                          ? get_image_params(*runtime->ctx_params,
                                                             request.gen_params,
-                                                            request.gen_params.seed + i)
+                                                            request.gen_params.seed + i / images_per_batch)
                                          : "";
                 auto image_bytes   = encode_image_to_vector(request.output_format == "jpeg" ? EncodedImageFormat::JPEG : EncodedImageFormat::PNG,
                                                           results[i].data,

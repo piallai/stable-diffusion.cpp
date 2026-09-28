@@ -63,6 +63,10 @@ static enum sample_method_t get_sdapi_sample_method(std::string name) {
         {"ddim", DDIM_TRAILING_SAMPLE_METHOD},
         {"dpm++ 2m", DPMPP2M_SAMPLE_METHOD},
         {"k_dpmpp_2m", DPMPP2M_SAMPLE_METHOD},
+        {"dpm++ 2m sde", DPMPP2M_SDE_SAMPLE_METHOD},
+        {"k_dpmpp_2m_sde", DPMPP2M_SDE_SAMPLE_METHOD},
+        {"dpm++ 2m sde gpu", DPMPP2M_SDE_BT_SAMPLE_METHOD},
+        {"k_dpmpp_2m_sde_gpu", DPMPP2M_SDE_BT_SAMPLE_METHOD},
         {"res multistep", RES_MULTISTEP_SAMPLE_METHOD},
         {"k_res_multistep", RES_MULTISTEP_SAMPLE_METHOD},
         {"res 2s", RES_2S_SAMPLE_METHOD},
@@ -74,17 +78,6 @@ static enum sample_method_t get_sdapi_sample_method(std::string name) {
     };
     auto it = hardcoded.find(name);
     return it != hardcoded.end() ? it->second : SAMPLE_METHOD_COUNT;
-}
-
-static void assign_solid_mask(SDImageOwner& mask_owner, int width, int height) {
-    const size_t pixel_count = static_cast<size_t>(width) * static_cast<size_t>(height);
-    uint8_t* raw_mask        = static_cast<uint8_t*>(malloc(pixel_count));
-    if (raw_mask == nullptr) {
-        mask_owner.reset({0, 0, 1, nullptr});
-        return;
-    }
-    std::memset(raw_mask, 255, pixel_count);
-    mask_owner.reset({(uint32_t)width, (uint32_t)height, 1, raw_mask});
 }
 
 static bool build_sdapi_img_gen_request(const json& j,
@@ -189,15 +182,25 @@ static bool build_sdapi_img_gen_request(const json& j,
         }
     }
 
-    if (img2img) {
-        const int expected_width  = request.gen_params.width_and_height_are_set() ? request.gen_params.width : 0;
-        const int expected_height = request.gen_params.width_and_height_are_set() ? request.gen_params.height : 0;
+    if (j.contains("ref_image_args")) {
+        if (!j["ref_image_args"].is_string()) {
+            error_message = "ref_image_args must be a string";
+            return false;
+        }
+        request.gen_params.ref_image_args = j["ref_image_args"].get<std::string>();
+    }
 
+    if (j.contains("image_preprocess") && !request.gen_params.parse_image_preprocess_json(j["image_preprocess"].dump())) {
+        error_message = "invalid image_preprocess";
+        return false;
+    }
+
+    if (img2img) {
         if (j.contains("init_images") && j["init_images"].is_array() && !j["init_images"].empty()) {
             if (decode_base64_image(j["init_images"][0].get<std::string>(),
-                                    3,
-                                    expected_width,
-                                    expected_height,
+                                    0,
+                                    0,
+                                    0,
                                     request.gen_params.init_image)) {
                 const sd_image_t& image = request.gen_params.init_image.get();
                 request.gen_params.set_width_and_height_if_unset(image.width, image.height);
@@ -207,8 +210,8 @@ static bool build_sdapi_img_gen_request(const json& j,
         if (j.contains("mask") && j["mask"].is_string()) {
             if (decode_base64_image(j["mask"].get<std::string>(),
                                     1,
-                                    expected_width,
-                                    expected_height,
+                                    0,
+                                    0,
                                     request.gen_params.mask_image)) {
                 const sd_image_t& image = request.gen_params.mask_image.get();
                 request.gen_params.set_width_and_height_if_unset(image.width, image.height);
@@ -221,9 +224,7 @@ static bool build_sdapi_img_gen_request(const json& j,
                 }
             }
         } else {
-            const int resolved_width  = request.gen_params.get_resolved_width();
-            const int resolved_height = request.gen_params.get_resolved_height();
-            assign_solid_mask(request.gen_params.mask_image, resolved_width, resolved_height);
+            request.gen_params.mask_image.reset({0, 0, 1, nullptr});
         }
 
         float denoising_strength = j.value("denoising_strength", -1.f);
@@ -239,9 +240,8 @@ static bool build_sdapi_img_gen_request(const json& j,
             }
             SDImageOwner image_owner;
             if (decode_base64_image(extra_image.get<std::string>(),
-                                    3,
-                                    request.gen_params.width_and_height_are_set() ? request.gen_params.width : 0,
-                                    request.gen_params.width_and_height_are_set() ? request.gen_params.height : 0,
+                                    0,
+                                    0, 0,
                                     image_owner)) {
                 const sd_image_t& image = image_owner.get();
                 request.gen_params.set_width_and_height_if_unset(image.width, image.height);
@@ -257,6 +257,48 @@ static bool build_sdapi_img_gen_request(const json& j,
     }
 
     return true;
+}
+
+static nlohmann::json prepare_info_field(const SDContextParams& ctx_params,
+                                         const SDGenerationParams& gen_params,
+                                         bool img2img) {
+    nlohmann::json jsoninfo = nlohmann::json::object();
+    jsoninfo["prompt"]      = gen_params.prompt;
+    if (!gen_params.negative_prompt.empty()) {
+        jsoninfo["negative_prompt"] = gen_params.negative_prompt;
+    }
+    jsoninfo["seed"]         = gen_params.seed;
+    jsoninfo["cfg_scale"]    = gen_params.sample_params.guidance.txt_cfg;
+    jsoninfo["width"]        = gen_params.get_resolved_width();
+    jsoninfo["height"]       = gen_params.get_resolved_height();
+    jsoninfo["steps"]        = gen_params.sample_params.sample_steps;
+    jsoninfo["sampler_name"] = sd_sample_method_name(gen_params.sample_params.sample_method);
+    if (gen_params.clip_skip != -1) {
+        jsoninfo["clip_skip"] = gen_params.clip_skip;
+    }
+    if (gen_params.sample_params.scheduler != scheduler_t::SCHEDULER_COUNT) {
+        jsoninfo["extra_generation_params"]                  = nlohmann::json::object();
+        jsoninfo["extra_generation_params"]["Schedule type"] = sd_scheduler_name(gen_params.sample_params.scheduler);
+    }
+    if (img2img) {
+        jsoninfo["denoising_strength"] = gen_params.strength;
+    }
+    // not clear what should happen if we have both model and diffusion_model
+    if (!ctx_params.diffusion_model_path.empty()) {
+        jsoninfo["sd_model_name"] = sd_basename(ctx_params.diffusion_model_path);
+    } else if (!ctx_params.model_path.empty()) {
+        jsoninfo["sd_model_name"] = sd_basename(ctx_params.model_path);
+    }
+    if (!ctx_params.vae_path.empty()) {
+        jsoninfo["sd_vae_name"] = sd_basename(ctx_params.vae_path);
+    }
+    jsoninfo["version"] = "stable-diffusion.cpp";
+
+    jsoninfo["infotexts"]            = nlohmann::json::array();
+    jsoninfo["all_prompts"]          = nlohmann::json::array();
+    jsoninfo["all_negative_prompts"] = nlohmann::json::array();
+    jsoninfo["all_seeds"]            = nlohmann::json::array();
+    return jsoninfo;
 }
 
 void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
@@ -284,7 +326,7 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
                 return;
             }
 
-            LOG_DEBUG("%s\n", request.gen_params.to_string().c_str());
+            LOG_VERBOSE("%s\n", request.gen_params.to_string().c_str());
 
             sd_img_gen_params_t img_gen_params = request.to_sd_img_gen_params_t();
             SDImageVec results;
@@ -292,8 +334,11 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
 
             {
                 std::lock_guard<std::mutex> lock(*runtime->sd_ctx_mutex);
-                sd_image_t* raw_results = generate_image(runtime->sd_ctx, &img_gen_params);
-                num_results             = request.gen_params.batch_count;
+                sd_image_t* raw_results = nullptr;
+                if (!generate_image(runtime->sd_ctx, &img_gen_params, &raw_results, &num_results)) {
+                    raw_results = nullptr;
+                    num_results = 0;
+                }
                 results.adopt(raw_results, num_results);
             }
 
@@ -306,24 +351,26 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
             json out;
             out["images"]     = json::array();
             out["parameters"] = j;
-            out["info"]       = "";
+            json jsoninfo     = prepare_info_field(*runtime->ctx_params, request.gen_params, img2img);
 
+            int images_per_batch = request.gen_params.batch_count > 0 ? std::max(1, num_results / request.gen_params.batch_count) : 1;
             for (int i = 0; i < num_results; ++i) {
                 if (results[i].data == nullptr) {
                     continue;
                 }
 
-                std::string params = request.gen_params.embed_image_metadata
-                                         ? get_image_params(*runtime->ctx_params,
-                                                            request.gen_params,
-                                                            request.gen_params.seed + i)
-                                         : "";
-                auto image_bytes   = encode_image_to_vector(EncodedImageFormat::PNG,
-                                                            results[i].data,
-                                                            results[i].width,
-                                                            results[i].height,
-                                                            results[i].channel,
-                                                            params);
+                bool embed_meta = request.gen_params.embed_image_metadata;
+
+                std::string params = get_image_params(*runtime->ctx_params,
+                                                      request.gen_params,
+                                                      request.gen_params.seed + i / images_per_batch);
+
+                auto image_bytes = encode_image_to_vector(EncodedImageFormat::PNG,
+                                                          results[i].data,
+                                                          results[i].width,
+                                                          results[i].height,
+                                                          results[i].channel,
+                                                          embed_meta ? params : "");
 
                 if (image_bytes.empty()) {
                     LOG_ERROR("write image to mem failed");
@@ -331,7 +378,15 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
                 }
 
                 out["images"].push_back(base64_encode(image_bytes));
+
+                jsoninfo["infotexts"][i]            = params;
+                jsoninfo["all_seeds"][i]            = request.gen_params.seed + i;
+                jsoninfo["all_prompts"][i]          = request.gen_params.prompt;
+                jsoninfo["all_negative_prompts"][i] = request.gen_params.negative_prompt;
             }
+
+            // not a mistake: it is supposed to be a string in json format
+            out["info"] = jsoninfo.dump();
 
             res.set_content(out.dump(), "application/json");
             res.status = 200;
@@ -438,6 +493,9 @@ void register_sdapi_endpoints(httplib::Server& svr, ServerRuntime& rt) {
         scheduler_names.push_back("default");
         for (int i = 0; i < SCHEDULER_COUNT; i++) {
             scheduler_names.push_back(sd_scheduler_name((scheduler_t)i));
+            if (i == DISCRETE_SCHEDULER) {
+                scheduler_names.push_back("normal");
+            }
         }
         json r = json::array();
         for (auto name : scheduler_names) {

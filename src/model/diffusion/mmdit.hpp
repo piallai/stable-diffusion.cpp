@@ -2,12 +2,18 @@
 #define __SD_MODEL_DIFFUSION_MMDIT_HPP__
 
 #include <algorithm>
+#include <cinttypes>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "core/ggml_extend.hpp"
+#include "core/ggml_extend.h"
+#include "core/ggml_extend_backend.h"
+#include "core/ggml_runner.h"
+#include "core/ggml_tensor_utils.h"
+#include "core/util.h"
 #include "model/common/block.hpp"
+#include "model/common/ggml_block.hpp"
 #include "model/diffusion/model.hpp"
 #include "model_loader.h"
 
@@ -120,27 +126,31 @@ struct MMDiTConfig {
         }
 
         if (has_weight_config) {
-            LOG_DEBUG("mmdit: num_layers = %" PRId64 ", num_mmdit_x_layers = %" PRId64 ", hidden_size = %" PRId64 ", patch_size = %d, in_channels = %" PRId64 ", out_channels = %" PRId64 ", context_size = %" PRId64 ", adm_in_channels = %" PRId64 ", qk_norm = %s",
-                      config.depth,
-                      config.d_self + 1,
-                      config.hidden_size,
-                      config.patch_size,
-                      config.in_channels,
-                      config.out_channels,
-                      config.context_size,
-                      config.adm_in_channels,
-                      config.qk_norm.empty() ? "none" : config.qk_norm.c_str());
+            LOG_VERBOSE("mmdit: num_layers = %" PRId64 ", num_mmdit_x_layers = %" PRId64 ", hidden_size = %" PRId64 ", patch_size = %d, in_channels = %" PRId64 ", out_channels = %" PRId64 ", context_size = %" PRId64 ", adm_in_channels = %" PRId64 ", qk_norm = %s",
+                        config.depth,
+                        config.d_self + 1,
+                        config.hidden_size,
+                        config.patch_size,
+                        config.in_channels,
+                        config.out_channels,
+                        config.context_size,
+                        config.adm_in_channels,
+                        config.qk_norm.empty() ? "none" : config.qk_norm.c_str());
         }
         return config;
     }
 };
 
 struct PatchEmbed : public GGMLBlock {
-    // 2D Image to Patch Embedding
+    // 2D/3D Image to Patch Embedding
 protected:
+    bool is_3d;
     bool flatten;
     bool dynamic_img_pad;
-    int patch_size;
+    int patch_t;
+    int patch_h;
+    int patch_w;
+    int64_t embed_dim;
 
 public:
     PatchEmbed(int64_t img_size     = 224,
@@ -149,42 +159,90 @@ public:
                int64_t embed_dim    = 1536,
                bool bias            = true,
                bool flatten         = true,
-               bool dynamic_img_pad = true)
-        : patch_size(patch_size),
+               bool dynamic_img_pad = true,
+               bool is_3d           = false)
+        : patch_t(is_3d ? patch_size : 1),
+          patch_h(patch_size),
+          patch_w(patch_size),
+          embed_dim(embed_dim),
           flatten(flatten),
-          dynamic_img_pad(dynamic_img_pad) {
+          dynamic_img_pad(dynamic_img_pad),
+          is_3d(is_3d) {
         // img_size is always None
         // patch_size is always 2
         // in_chans is always 16
         // norm_layer is always False
         // strict_img_size is always true, but not used
 
-        blocks["proj"] = std::shared_ptr<GGMLBlock>(new Conv2d(in_chans,
-                                                               embed_dim,
-                                                               {patch_size, patch_size},
-                                                               {patch_size, patch_size},
-                                                               {0, 0},
-                                                               {1, 1},
-                                                               bias));
+        if (is_3d) {
+            blocks["proj"] = std::make_shared<Conv3d>(in_chans,
+                                                      embed_dim,
+                                                      std::tuple{patch_size, patch_size, patch_size},
+                                                      std::tuple{patch_size, patch_size, patch_size},
+                                                      std::tuple{0, 0, 0},
+                                                      std::tuple{1, 1, 1},
+                                                      bias);
+        } else {
+            blocks["proj"] = std::make_shared<Conv2d>(in_chans,
+                                                      embed_dim,
+                                                      std::pair{patch_size, patch_size},
+                                                      std::pair{patch_size, patch_size},
+                                                      std::pair{0, 0},
+                                                      std::pair{1, 1},
+                                                      bias);
+        }
+    }
+
+    PatchEmbed(int64_t img_size,
+               std::tuple<int, int, int> patch_size,
+               int64_t in_chans,
+               int64_t embed_dim,
+               bool bias            = true,
+               bool flatten         = true,
+               bool dynamic_img_pad = true)
+        : patch_t(std::get<0>(patch_size)),
+          patch_h(std::get<1>(patch_size)),
+          patch_w(std::get<2>(patch_size)),
+          embed_dim(embed_dim),
+          flatten(flatten),
+          dynamic_img_pad(dynamic_img_pad),
+          is_3d(true) {
+        SD_UNUSED(img_size);
+        blocks["proj"] = std::make_shared<Conv3d>(in_chans,
+                                                  embed_dim,
+                                                  patch_size,
+                                                  patch_size,
+                                                  std::tuple{0, 0, 0},
+                                                  std::tuple{1, 1, 1},
+                                                  bias);
     }
 
     ggml_tensor* forward(GGMLRunnerContext* ctx, ggml_tensor* x) {
-        // x: [N, C, H, W]
-        // return: [N, H*W, embed_dim]
-        auto proj = std::dynamic_pointer_cast<Conv2d>(blocks["proj"]);
+        // x: [N, C, H, W] or [N*C, T, H, W]
+        // return: [N, h_len*w_len, embed_dim] or [N, t_len*h_len*w_len, embed_dim]
+        auto proj = std::dynamic_pointer_cast<UnaryBlock>(blocks["proj"]);
 
         if (dynamic_img_pad) {
             int64_t W = x->ne[0];
             int64_t H = x->ne[1];
-            int pad_h = (patch_size - H % patch_size) % patch_size;
-            int pad_w = (patch_size - W % patch_size) % patch_size;
-            x         = ggml_pad(ctx->ggml_ctx, x, pad_w, pad_h, 0, 0);  // TODO: reflect pad mode
+            int pad_t = 0;
+            int pad_h = (patch_h - static_cast<int>(H % patch_h)) % patch_h;
+            int pad_w = (patch_w - static_cast<int>(W % patch_w)) % patch_w;
+            if (is_3d) {
+                int64_t T = x->ne[2];
+                pad_t     = (patch_t - static_cast<int>(T % patch_t)) % patch_t;
+            }
+            x = ggml_pad(ctx->ggml_ctx, x, pad_w, pad_h, pad_t, 0);  // TODO: reflect pad mode
         }
-        x = proj->forward(ctx, x);
+        x = proj->forward(ctx, x);  // [N, C, h_len, w_len] or [N*C, t_len, h_len, w_len]
 
         if (flatten) {
-            x = ggml_reshape_3d(ctx->ggml_ctx, x, x->ne[0] * x->ne[1], x->ne[2], x->ne[3]);
-            x = ggml_cont(ctx->ggml_ctx, ggml_permute(ctx->ggml_ctx, x, 1, 0, 2, 3));
+            if (is_3d) {
+                x = ggml_reshape_3d(ctx->ggml_ctx, x, x->ne[0] * x->ne[1] * x->ne[2], embed_dim, x->ne[3] / embed_dim);  // [N, C, t_len*h_len*w_len]
+            } else {
+                x = ggml_reshape_3d(ctx->ggml_ctx, x, x->ne[0] * x->ne[1], x->ne[2], x->ne[3]);  // [N, C, h_len*w_len]
+            }
+            x = ggml_cont(ctx->ggml_ctx, ggml_permute(ctx->ggml_ctx, x, 1, 0, 2, 3));  // [N, h_len*w_len, C]
         }
         return x;
     }
@@ -307,8 +365,8 @@ public:
     ggml_tensor* forward(GGMLRunnerContext* ctx,
                          ggml_tensor* x) {
         auto qkv = pre_attention(ctx, x);
-        x        = ggml_ext_attention_ext(ctx->ggml_ctx, ctx->backend, qkv[0], qkv[1], qkv[2], num_heads, nullptr, false, ctx->flash_attn_enabled);  // [N, n_token, dim]
-        x        = post_attention(ctx, x);                                                                                                           // [N, n_token, dim]
+        x        = ggml_ext_attention_ext(ctx, qkv[0], qkv[1], qkv[2], num_heads, nullptr, false, ctx->flash_attn_enabled);  // [N, n_token, dim]
+        x        = post_attention(ctx, x);                                                                                   // [N, n_token, dim]
         return x;
     }
 };
@@ -529,8 +587,8 @@ public:
             auto qkv2          = std::get<1>(qkv_intermediates);
             auto intermediates = std::get<2>(qkv_intermediates);
 
-            auto attn_out  = ggml_ext_attention_ext(ctx->ggml_ctx, ctx->backend, qkv[0], qkv[1], qkv[2], num_heads, nullptr, false, ctx->flash_attn_enabled);     // [N, n_token, dim]
-            auto attn2_out = ggml_ext_attention_ext(ctx->ggml_ctx, ctx->backend, qkv2[0], qkv2[1], qkv2[2], num_heads, nullptr, false, ctx->flash_attn_enabled);  // [N, n_token, dim]
+            auto attn_out  = ggml_ext_attention_ext(ctx, qkv[0], qkv[1], qkv[2], num_heads, nullptr, false, ctx->flash_attn_enabled);     // [N, n_token, dim]
+            auto attn2_out = ggml_ext_attention_ext(ctx, qkv2[0], qkv2[1], qkv2[2], num_heads, nullptr, false, ctx->flash_attn_enabled);  // [N, n_token, dim]
             x              = post_attention_x(ctx,
                                               attn_out,
                                               attn2_out,
@@ -546,7 +604,7 @@ public:
             auto qkv               = qkv_intermediates.first;
             auto intermediates     = qkv_intermediates.second;
 
-            auto attn_out = ggml_ext_attention_ext(ctx->ggml_ctx, ctx->backend, qkv[0], qkv[1], qkv[2], num_heads, nullptr, false, ctx->flash_attn_enabled);  // [N, n_token, dim]
+            auto attn_out = ggml_ext_attention_ext(ctx, qkv[0], qkv[1], qkv[2], num_heads, nullptr, false, ctx->flash_attn_enabled);  // [N, n_token, dim]
             x             = post_attention(ctx,
                                            attn_out,
                                            intermediates[0],
@@ -590,7 +648,7 @@ block_mixing(GGMLRunnerContext* ctx,
         qkv.push_back(ggml_concat(ctx->ggml_ctx, context_qkv[i], x_qkv[i], 1));
     }
 
-    auto attn = ggml_ext_attention_ext(ctx->ggml_ctx, ctx->backend, qkv[0], qkv[1], qkv[2], x_block->num_heads, nullptr, false, ctx->flash_attn_enabled);  // [N, n_context + n_token, hidden_size]
+    auto attn = ggml_ext_attention_ext(ctx, qkv[0], qkv[1], qkv[2], x_block->num_heads, nullptr, false, ctx->flash_attn_enabled);  // [N, n_context + n_token, hidden_size]
 
     auto context_attn = ggml_view_3d(ctx->ggml_ctx,
                                      attn,
@@ -622,7 +680,7 @@ block_mixing(GGMLRunnerContext* ctx,
     }
 
     if (x_block->self_attn) {
-        auto attn2 = ggml_ext_attention_ext(ctx->ggml_ctx, ctx->backend, x_qkv2[0], x_qkv2[1], x_qkv2[2], x_block->num_heads, nullptr, false, ctx->flash_attn_enabled);  // [N, n_token, hidden_size]
+        auto attn2 = ggml_ext_attention_ext(ctx, x_qkv2[0], x_qkv2[1], x_qkv2[2], x_block->num_heads, nullptr, false, ctx->flash_attn_enabled);  // [N, n_token, hidden_size]
 
         x = x_block->post_attention_x(ctx,
                                       x_attn,
@@ -935,7 +993,7 @@ struct MMDiTRunner : public DiffusionModelRunner {
             return build_graph(x, timesteps, context, y, skip_layers);
         };
 
-        return restore_trailing_singleton_dims(GGMLRunner::compute<float>(get_graph, n_threads, false, false, false), x.dim());
+        return restore_trailing_singleton_dims(GGMLRunner::compute(get_graph, n_threads, false), x.dim());
     }
 
     sd::Tensor<float> compute(int n_threads,
@@ -993,7 +1051,7 @@ struct MMDiTRunner : public DiffusionModelRunner {
             GGML_ASSERT(!out_opt.empty());
             out = std::move(out_opt);
             print_sd_tensor(out);
-            LOG_DEBUG("mmdit test done in %lldms", t1 - t0);
+            LOG_VERBOSE("mmdit test done in %lldms", t1 - t0);
         }
     }
 
@@ -1006,13 +1064,14 @@ struct MMDiTRunner : public DiffusionModelRunner {
         {
             LOG_INFO("loading from '%s'", file_path.c_str());
 
-            ModelLoader& model_loader = model_manager->loader();
+            ModelLoader model_loader;
             if (!model_loader.init_from_file_and_convert_name(file_path)) {
                 LOG_ERROR("init model loader from file failed: '%s'", file_path.c_str());
                 return;
             }
 
-            if (!model_manager->register_runner_params("MMDiT test",
+            if (!model_manager->set_loader(std::move(model_loader)) ||
+                !model_manager->register_runner_params(ModelComponent::Diffusion,
                                                        *mmdit,
                                                        "model.diffusion_model",
                                                        ModelManager::ResidencyMode::ParamBackend,

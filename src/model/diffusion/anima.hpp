@@ -2,6 +2,7 @@
 #define __SD_MODEL_DIFFUSION_ANIMA_HPP__
 
 #include <algorithm>
+#include <cinttypes>
 #include <cmath>
 #include <memory>
 #include <utility>
@@ -46,11 +47,11 @@ namespace Anima {
             }
             if (detected_layers > 0) {
                 config.num_layers = detected_layers;
-                LOG_DEBUG("anima: num_layers = %" PRId64 ", hidden_size = %" PRId64 ", num_heads = %" PRId64 ", head_dim = %" PRId64,
-                          config.num_layers,
-                          config.hidden_size,
-                          config.num_heads,
-                          config.head_dim);
+                LOG_VERBOSE("anima: num_layers = %" PRId64 ", hidden_size = %" PRId64 ", num_heads = %" PRId64 ", head_dim = %" PRId64,
+                            config.num_layers,
+                            config.hidden_size,
+                            config.num_heads,
+                            config.head_dim);
             }
             return config;
         }
@@ -236,8 +237,7 @@ namespace Anima {
                 }
                 auto q_rope = Rope::apply_rope(ctx->ggml_ctx, q4, pe_q, false);
                 auto k_rope = Rope::apply_rope(ctx->ggml_ctx, k4, pe_k, false);
-                attn_out    = ggml_ext_attention_ext(ctx->ggml_ctx,
-                                                     ctx->backend,
+                attn_out    = ggml_ext_attention_ext(ctx,
                                                      q_rope,
                                                      k_rope,
                                                      v4,
@@ -248,8 +248,7 @@ namespace Anima {
             } else {
                 auto q_flat = ggml_reshape_3d(ctx->ggml_ctx, q4, head_dim * num_heads, L_q, N);
                 auto k_flat = ggml_reshape_3d(ctx->ggml_ctx, k4, head_dim * num_heads, L_k, N);
-                attn_out    = ggml_ext_attention_ext(ctx->ggml_ctx,
-                                                     ctx->backend,
+                attn_out    = ggml_ext_attention_ext(ctx,
                                                      q_flat,
                                                      k_flat,
                                                      v,
@@ -484,10 +483,11 @@ namespace Anima {
                              ggml_tensor* timestep,
                              ggml_tensor* encoder_hidden_states,
                              ggml_tensor* image_pe,
-                             ggml_tensor* t5_ids       = nullptr,
-                             ggml_tensor* t5_weights   = nullptr,
-                             ggml_tensor* adapter_q_pe = nullptr,
-                             ggml_tensor* adapter_k_pe = nullptr) {
+                             ggml_tensor* t5_ids                   = nullptr,
+                             ggml_tensor* t5_weights               = nullptr,
+                             ggml_tensor* adapter_q_pe             = nullptr,
+                             ggml_tensor* adapter_k_pe             = nullptr,
+                             std::vector<ggml_tensor*> ref_latents = {}) {
             GGML_ASSERT(x->ne[3] == 1);
 
             auto x_embedder       = std::dynamic_pointer_cast<XEmbedder>(blocks["x_embedder"]);
@@ -502,8 +502,16 @@ namespace Anima {
             auto padding_mask = ggml_ext_zeros(ctx->ggml_ctx, x->ne[0], x->ne[1], 1, x->ne[3]);
             x                 = ggml_concat(ctx->ggml_ctx, x, padding_mask, 2);  // [N, C + 1, H, W]
 
-            x = DiT::pad_and_patchify(ctx, x, config.patch_size, config.patch_size);  // [N, h*w, (C+1)*ph*pw]
-
+            x               = DiT::pad_and_patchify(ctx, x, config.patch_size, config.patch_size);  // [N, h*w, (C+1)*ph*pw]
+            int64_t img_len = x->ne[1];
+            if (ref_latents.size() > 0) {
+                for (ggml_tensor* ref : ref_latents) {
+                    auto padding_mask = ggml_ext_zeros(ctx->ggml_ctx, ref->ne[0], ref->ne[1], 1, ref->ne[3]);
+                    ref               = ggml_concat(ctx->ggml_ctx, ref, padding_mask, 2);  // [N, C + 1, H, W]
+                    ref               = DiT::pad_and_patchify(ctx, ref, config.patch_size, config.patch_size);
+                    x                 = ggml_concat(ctx->ggml_ctx, x, ref, 1);
+                }
+            }
             x = x_embedder->forward(ctx, x);
 
             auto timestep_proj     = ggml_ext_timestep_embedding(ctx->ggml_ctx, timestep, static_cast<int>(config.hidden_size));
@@ -543,6 +551,7 @@ namespace Anima {
                 x          = block->forward(ctx, x, encoder_hidden_states, embedded_timestep, temb, image_pe);
                 sd::ggml_graph_cut::mark_graph_cut(x, "anima.blocks." + std::to_string(i), "x");
             }
+            x = ggml_ext_slice(ctx->ggml_ctx, x, 1, 0, img_len);
 
             x = final_layer->forward(ctx, x, embedded_timestep, temb);  // [N, h*w, ph*pw*C]
 
@@ -594,46 +603,55 @@ namespace Anima {
             return std::pow(extrapolation_ratio, static_cast<float>(axis_dim) / static_cast<float>(axis_dim - 2));
         }
 
-        static std::vector<float> gen_anima_image_pe_vec(int bs,
-                                                         int h,
-                                                         int w,
-                                                         int patch_size,
-                                                         int theta,
-                                                         const std::vector<int>& axes_dim,
-                                                         float h_extrapolation_ratio,
-                                                         float w_extrapolation_ratio,
-                                                         float t_extrapolation_ratio) {
-            static const std::vector<ggml_tensor*> empty_ref_latents;
-            auto ids = Rope::gen_flux_ids(h,
-                                          w,
-                                          patch_size,
-                                          bs,
-                                          static_cast<int>(axes_dim.size()),
-                                          0,
-                                          {},
-                                          empty_ref_latents,
-                                          false,
-                                          1.0f,
-                                          false);
+        static Rope::Embedding gen_anima_image_pe_vec(int bs,
+                                                      int h,
+                                                      int w,
+                                                      int patch_size,
+                                                      int theta,
+                                                      const std::vector<int>& axes_dim,
+                                                      float h_extrapolation_ratio,
+                                                      float w_extrapolation_ratio,
+                                                      float t_extrapolation_ratio,
+                                                      const std::vector<ggml_tensor*>& ref_latents) {
+            Rope::Embedding result;
+            result.batch_size = bs;
+            result.ids        = Rope::gen_flux_ids(h,
+                                                   w,
+                                                   patch_size,
+                                                   bs,
+                                                   static_cast<int>(axes_dim.size()),
+                                                   0,
+                                                   {},
+                                                   ref_latents,
+                                                   Rope::RefIndexMode::FIXED,
+                                                   1.0f,
+                                                   false, &result.positions);
 
             std::vector<float> axis_thetas = {
                 static_cast<float>(theta) * calc_ntk_factor(t_extrapolation_ratio, axes_dim[0]),
                 static_cast<float>(theta) * calc_ntk_factor(h_extrapolation_ratio, axes_dim[1]),
                 static_cast<float>(theta) * calc_ntk_factor(w_extrapolation_ratio, axes_dim[2]),
             };
-            return Rope::embed_nd(ids, bs, axis_thetas, axes_dim);
+            result.values = Rope::embed_nd(result.ids, bs, axis_thetas, axes_dim, result.layout, &result.frequencies);
+            return result;
         }
 
         ggml_cgraph* build_graph(const sd::Tensor<float>& x_tensor,
                                  const sd::Tensor<float>& timesteps_tensor,
-                                 const sd::Tensor<float>& context_tensor    = {},
-                                 const sd::Tensor<int32_t>& t5_ids_tensor   = {},
-                                 const sd::Tensor<float>& t5_weights_tensor = {}) {
+                                 const sd::Tensor<float>& context_tensor                  = {},
+                                 const sd::Tensor<int32_t>& t5_ids_tensor                 = {},
+                                 const sd::Tensor<float>& t5_weights_tensor               = {},
+                                 const std::vector<sd::Tensor<float>>& ref_latents_tensor = {}) {
             ggml_tensor* x          = make_input(x_tensor);
             ggml_tensor* timesteps  = make_input(timesteps_tensor);
             ggml_tensor* context    = make_optional_input(context_tensor);
             ggml_tensor* t5_ids     = make_optional_input(t5_ids_tensor);
             ggml_tensor* t5_weights = make_optional_input(t5_weights_tensor);
+            std::vector<ggml_tensor*> ref_latents;
+            ref_latents.reserve(ref_latents_tensor.size());
+            for (const auto& ref_latent_tensor : ref_latents_tensor) {
+                ref_latents.push_back(make_input(ref_latent_tensor));
+            }
             GGML_ASSERT(x->ne[3] == 1);
             ggml_cgraph* gf = new_graph_custom(ANIMA_GRAPH_SIZE);
 
@@ -642,15 +660,16 @@ namespace Anima {
             int64_t h_pad = x->ne[1] + pad_h;
             int64_t w_pad = x->ne[0] + pad_w;
 
-            image_pe_vec          = gen_anima_image_pe_vec(1,
-                                                           static_cast<int>(h_pad),
-                                                           static_cast<int>(w_pad),
-                                                           static_cast<int>(config.patch_size),
-                                                           config.theta,
-                                                           config.axes_dim,
-                                                           4.0f,
-                                                           4.0f,
-                                                           1.0f);
+            image_pe_vec          = finish_rope_pe(gen_anima_image_pe_vec(1,
+                                                                          static_cast<int>(h_pad),
+                                                                          static_cast<int>(w_pad),
+                                                                          static_cast<int>(config.patch_size),
+                                                                          config.theta,
+                                                                          config.axes_dim,
+                                                                          4.0f,
+                                                                          4.0f,
+                                                                          1.0f,
+                                                                          ref_latents));
             int64_t image_pos_len = static_cast<int64_t>(image_pe_vec.size()) / (2 * 2 * (config.head_dim / 2));
             auto image_pe         = ggml_new_tensor_4d(compute_ctx, GGML_TYPE_F32, 2, 2, config.head_dim / 2, image_pos_len);
             set_backend_tensor_data(image_pe, image_pe_vec.data());
@@ -682,7 +701,8 @@ namespace Anima {
                                           t5_ids,
                                           t5_weights,
                                           adapter_q_pe,
-                                          adapter_k_pe);
+                                          adapter_k_pe,
+                                          ref_latents);
 
             ggml_build_forward_expand(gf, out);
             return gf;
@@ -691,13 +711,15 @@ namespace Anima {
         sd::Tensor<float> compute(int n_threads,
                                   const sd::Tensor<float>& x,
                                   const sd::Tensor<float>& timesteps,
-                                  const sd::Tensor<float>& context    = {},
-                                  const sd::Tensor<int32_t>& t5_ids   = {},
-                                  const sd::Tensor<float>& t5_weights = {}) {
+                                  const sd::Tensor<float>& context                  = {},
+                                  const sd::Tensor<int32_t>& t5_ids                 = {},
+                                  const sd::Tensor<float>& t5_weights               = {},
+                                  const std::vector<sd::Tensor<float>>& ref_latents = {},
+                                  const RefImageParams& ref_image_params            = REF_IMAGE_PRESETS.at("cosmos_reference")) {
             auto get_graph = [&]() -> ggml_cgraph* {
-                return build_graph(x, timesteps, context, t5_ids, t5_weights);
+                return build_graph(x, timesteps, context, t5_ids, t5_weights, ref_latents);
             };
-            return restore_trailing_singleton_dims(GGMLRunner::compute<float>(get_graph, n_threads, false, false, false), x.dim());
+            return restore_trailing_singleton_dims(GGMLRunner::compute(get_graph, n_threads, false), x.dim());
         }
 
         sd::Tensor<float> compute(int n_threads,
@@ -705,12 +727,15 @@ namespace Anima {
             GGML_ASSERT(diffusion_params.x != nullptr);
             GGML_ASSERT(diffusion_params.timesteps != nullptr);
             const auto* extra = diffusion_extra_as<AnimaDiffusionExtra>(diffusion_params);
+            static const std::vector<sd::Tensor<float>> empty_ref_latents;
             return compute(n_threads,
                            *diffusion_params.x,
                            *diffusion_params.timesteps,
                            tensor_or_empty(diffusion_params.context),
                            tensor_or_empty(extra->t5_ids),
-                           tensor_or_empty(extra->t5_weights));
+                           tensor_or_empty(extra->t5_weights),
+                           diffusion_params.ref_latents && diffusion_params.ref_image_params.pass_to_dit ? *diffusion_params.ref_latents : empty_ref_latents,
+                           diffusion_params.ref_image_params);
         }
     };
 }  // namespace Anima

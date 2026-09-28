@@ -15,19 +15,24 @@
 
 struct TensorStorage {
     std::string name;
-    ggml_type type          = GGML_TYPE_F32;
-    ggml_type expected_type = GGML_TYPE_COUNT;
-    bool is_f8_e4m3         = false;
-    bool is_f8_e5m2         = false;
-    bool is_f64             = false;
-    bool is_i64             = false;
-    int64_t ne[SD_MAX_DIMS] = {1, 1, 1, 1, 1};
-    int n_dims              = 0;
+    ggml_type type              = GGML_TYPE_F32;
+    ggml_type expected_type     = GGML_TYPE_COUNT;
+    bool is_f8_e4m3             = false;
+    bool is_f8_e5m2             = false;
+    bool is_f64                 = false;
+    bool is_i64                 = false;
+    bool is_int8_tensorwise     = false;
+    bool int8_convrot           = false;
+    int int8_convrot_group_size = 0;
+    int64_t ne[SD_MAX_DIMS]     = {1, 1, 1, 1, 1};
+    int n_dims                  = 0;
 
     std::string storage_key;
-    size_t file_index = 0;
-    int index_in_zip  = -1;  // >= means stored in a zip file
-    uint64_t offset   = 0;   // offset in file
+    size_t file_index      = 0;
+    uint64_t file_id       = 0;
+    uint64_t file_revision = 0;
+    int index_in_zip       = -1;  // >= means stored in a zip file
+    uint64_t offset        = 0;   // offset in file
 
     TensorStorage() = default;
 
@@ -51,10 +56,12 @@ struct TensorStorage {
     }
 
     int64_t nbytes_to_read() const {
-        if (is_f8_e4m3 || is_f8_e5m2) {
-            return nbytes() / 2;
-        } else if (is_f64 || is_i64) {
+        if (is_f64 || is_i64) {
             return nbytes() * 2;
+#ifdef SD_USE_UPSTREAM_GGML
+        } else if (is_f8_e4m3 || is_f8_e5m2) {
+            return nbytes() / 2;
+#endif
         } else {
             return nbytes();
         }
@@ -125,6 +132,25 @@ struct TensorWriteInfo {
     int64_t ne[SD_MAX_DIMS] = {1, 1, 1, 1, 1};
     int n_dims              = 0;
     ggml_tensor* tensor     = nullptr;
+};
+
+struct TensorWritePlan {
+    std::string name;
+    ggml_type type          = GGML_TYPE_F32;
+    int64_t ne[SD_MAX_DIMS] = {1, 1, 1, 1, 1};
+    int n_dims              = 0;
+
+    int64_t nelements() const {
+        int64_t n = 1;
+        for (int i = 0; i < SD_MAX_DIMS; i++) {
+            n *= ne[i];
+        }
+        return n;
+    }
+
+    uint64_t nbytes() const {
+        return nelements() * ggml_type_size(type) / ggml_blck_size(type);
+    }
 };
 
 typedef std::function<bool(const TensorStorage&, ggml_tensor**)> on_new_tensor_cb_t;

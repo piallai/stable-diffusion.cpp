@@ -40,12 +40,21 @@ struct UpscalerCtxDeleter {
     }
 };
 
+struct ADetailerCtxDeleter {
+    void operator()(adetailer_ctx_t* ctx) const {
+        if (ctx != nullptr) {
+            free_adetailer_ctx(ctx);
+        }
+    }
+};
+
 template <typename T>
 using FreeUniquePtr = std::unique_ptr<T, FreeDeleter>;
 
-using FilePtr        = std::unique_ptr<FILE, FileCloser>;
-using SDCtxPtr       = std::unique_ptr<sd_ctx_t, SDCtxDeleter>;
-using UpscalerCtxPtr = std::unique_ptr<upscaler_ctx_t, UpscalerCtxDeleter>;
+using FilePtr         = std::unique_ptr<FILE, FileCloser>;
+using SDCtxPtr        = std::unique_ptr<sd_ctx_t, SDCtxDeleter>;
+using UpscalerCtxPtr  = std::unique_ptr<upscaler_ctx_t, UpscalerCtxDeleter>;
+using ADetailerCtxPtr = std::unique_ptr<adetailer_ctx_t, ADetailerCtxDeleter>;
 
 class SDImageOwner {
 private:
@@ -129,6 +138,37 @@ public:
             free(image_.data);
         }
         image_ = image;
+    }
+};
+
+class SDAudioOwner {
+private:
+    uint32_t sample_rate_ = 0;
+    uint32_t channels_    = 0;
+    std::vector<float> samples_;
+
+public:
+    SDAudioOwner() = default;
+
+    void reset(std::vector<float> samples = {}, uint32_t sample_rate = 0, uint32_t channels = 0) {
+        samples_     = std::move(samples);
+        sample_rate_ = sample_rate;
+        channels_    = channels;
+    }
+
+    bool empty() const {
+        return samples_.empty();
+    }
+
+    sd_audio_t get() {
+        return {sample_rate_,
+                channels_,
+                channels_ == 0 ? 0 : static_cast<uint64_t>(samples_.size() / channels_),
+                samples_.empty() ? nullptr : samples_.data()};
+    }
+
+    const std::vector<float>& samples() const {
+        return samples_;
     }
 };
 

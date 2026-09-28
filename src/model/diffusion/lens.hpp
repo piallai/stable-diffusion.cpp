@@ -1,6 +1,7 @@
 #ifndef __SD_MODEL_DIFFUSION_LENS_HPP__
 #define __SD_MODEL_DIFFUSION_LENS_HPP__
 
+#include <cinttypes>
 #include <memory>
 #include <vector>
 
@@ -66,14 +67,14 @@ namespace Lens {
             for (int axis_dim : config.axes_dim) {
                 config.axes_dim_sum += axis_dim;
             }
-            LOG_DEBUG("lens: num_layers = %d, selected_layer_count = %d, hidden_size = %" PRId64 ", num_attention_heads = %" PRId64 ", attention_head_dim = %" PRId64 ", in_channels = %" PRId64 ", out_channels = %" PRId64,
-                      config.num_layers,
-                      config.selected_layer_count,
-                      config.num_attention_heads * config.attention_head_dim,
-                      config.num_attention_heads,
-                      config.attention_head_dim,
-                      config.in_channels,
-                      config.out_channels);
+            LOG_VERBOSE("lens: num_layers = %d, selected_layer_count = %d, hidden_size = %" PRId64 ", num_attention_heads = %" PRId64 ", attention_head_dim = %" PRId64 ", in_channels = %" PRId64 ", out_channels = %" PRId64,
+                        config.num_layers,
+                        config.selected_layer_count,
+                        config.num_attention_heads * config.attention_head_dim,
+                        config.num_attention_heads,
+                        config.attention_head_dim,
+                        config.in_channels,
+                        config.out_channels);
             return config;
         }
     };
@@ -383,14 +384,12 @@ namespace Lens {
             GGML_ASSERT(!context_tensor.empty());
             ggml_tensor* context = make_input(context_tensor);
 
-            pe_vec      = Rope::gen_lens_pe(static_cast<int>(x->ne[1]),
-                                            static_cast<int>(x->ne[0]),
-                                            static_cast<int>(x->ne[3]),
-                                            static_cast<int>(context->ne[1]),
-                                            config.theta,
-                                            circular_y_enabled,
-                                            circular_x_enabled,
-                                            config.axes_dim);
+            pe_vec      = finish_rope_pe(Rope::gen_lens_pe(static_cast<int>(x->ne[1]),
+                                                           static_cast<int>(x->ne[0]),
+                                                           static_cast<int>(x->ne[3]),
+                                                           static_cast<int>(context->ne[1]),
+                                                           config.theta,
+                                                           config.axes_dim));
             int pos_len = static_cast<int>(pe_vec.size() / config.axes_dim_sum / 2);
             auto pe     = ggml_new_tensor_4d(compute_ctx, GGML_TYPE_F32, 2, 2, config.axes_dim_sum / 2, pos_len);
             set_backend_tensor_data(pe, pe_vec.data());
@@ -408,7 +407,7 @@ namespace Lens {
             auto get_graph = [&]() -> ggml_cgraph* {
                 return build_graph(x, timesteps, context);
             };
-            return restore_trailing_singleton_dims(GGMLRunner::compute<float>(get_graph, n_threads, false, false, false), x.dim());
+            return restore_trailing_singleton_dims(GGMLRunner::compute(get_graph, n_threads, false), x.dim());
         }
 
         sd::Tensor<float> compute(int n_threads,

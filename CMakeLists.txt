@@ -11,10 +11,11 @@ endif()
 if (MSVC)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
     add_compile_definitions(_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING)
+    # /MP is MSVC-only: icx rejects it outright once offloading is enabled.
     add_compile_options(
-        $<$<COMPILE_LANGUAGE:C>:/MP>
+        $<$<AND:$<COMPILE_LANGUAGE:C>,$<C_COMPILER_ID:MSVC>>:/MP>
         $<$<COMPILE_LANGUAGE:C>:/utf-8>
-        $<$<COMPILE_LANGUAGE:CXX>:/MP>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/MP>
         $<$<COMPILE_LANGUAGE:CXX>:/utf-8>
     )
 endif()
@@ -94,6 +95,8 @@ option(SD_MUSA                       "sd: musa backend" OFF)
 option(SD_BUILD_SHARED_LIBS          "sd: build shared libs" OFF)
 option(SD_BUILD_SHARED_GGML_LIB      "sd: build ggml as a separate shared lib" OFF)
 option(SD_USE_SYSTEM_GGML            "sd: use system-installed GGML library" OFF)
+option(SD_USE_UPSTREAM_GGML          "sd: build with upstream GGML instead of the patched GGML extensions" OFF)
+set(SD_GGML_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ggml" CACHE PATH "sd: ggml source directory (also supplies private headers for system ggml)")
 #option(SD_BUILD_SERVER               "sd: build server example"                           ON)
 option(SD_EXAMPLES_GLOVE_GUI         "sd: use glove gui for examples" OFF)
 option(SD_EXAMPLES_GLOVE_GUI_DESKTOP "sd: if SD_EXAMPLES_GLOVE_GUI, gui is configured as autonomous desktop application" ON)
@@ -233,6 +236,8 @@ file(GLOB SD_LIB_SOURCES CONFIGURE_DEPENDS
     "src/model/*/*.h"
     "src/model/*/*.cpp"
     "src/model/*/*.hpp"
+    "src/pipeline/*.h"
+    "src/pipeline/*.cpp"
     "src/runtime/*.h"
     "src/runtime/*.cpp"
     "src/runtime/*.hpp"
@@ -309,6 +314,12 @@ if(SD_EXAMPLES_GLOVE_GUI)
     qt_disable_unicode_defines(stable-diffusion)
 endif()
 
+if(MSVC)
+    target_compile_options(${SD_LIB} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/bigobj>)
+    # ggml backends can throw C++ exceptions through their C API.
+    target_compile_options(${SD_LIB} PRIVATE $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/EHsc->)
+endif()
+
 if(APPLE)
     sd_set_macos_rpaths(${SD_LIB})
 endif()
@@ -332,26 +343,25 @@ set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 if (NOT SD_USE_SYSTEM_GGML)
     # see https://github.com/ggerganov/ggml/pull/682
-    add_definitions(-DGGML_MAX_NAME=128)
+    add_definitions(-DGGML_MAX_NAME=160)
 endif()
 
 # deps
-# Only add ggml if it hasn't been added yet
-if (NOT TARGET ggml)
-    if (SD_USE_SYSTEM_GGML)
-        find_package(ggml REQUIRED)
-        if (NOT ggml_FOUND)
-            message(FATAL_ERROR "System-installed GGML library not found.")
-        endif()
-        add_library(ggml ALIAS ggml::ggml)
-    else()
-        add_subdirectory(ggml)
-    endif()
-endif()
+include(cmake/ggml.cmake)
 
 add_subdirectory(thirdparty)
 
-target_link_libraries(${SD_LIB} PUBLIC ggml zip)
+target_sources(${SD_LIB} PRIVATE $<TARGET_OBJECTS:zip>)
+target_link_libraries(${SD_LIB} PUBLIC ggml)
+find_package(Threads REQUIRED)
+target_link_libraries(${SD_LIB} PRIVATE Threads::Threads)
+target_link_libraries(${SD_LIB} PRIVATE onig sd-utf8proc)
+if (SD_CUDA)
+    find_package(CUDAToolkit REQUIRED)
+    # Keep the driver stub on downstream link lines when no driver is installed.
+    target_link_libraries(${SD_LIB} PUBLIC CUDA::cuda_driver)
+    set_property(SOURCE src/core/ggml_extend_backend.cpp APPEND PROPERTY COMPILE_DEFINITIONS SD_USE_CUDA)
+endif()
 target_include_directories(${SD_LIB} PUBLIC . src include)
 target_include_directories(${SD_LIB} PRIVATE src/core)
 target_include_directories(${SD_LIB} PUBLIC . thirdparty)
@@ -362,7 +372,58 @@ if (SD_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
 
-set(SD_PUBLIC_HEADERS include/stable-diffusion.h)
-set_target_properties(${SD_LIB} PROPERTIES PUBLIC_HEADER "${SD_PUBLIC_HEADERS}")
 
-install(TARGETS ${SD_LIB} LIBRARY PUBLIC_HEADER)
+
+#
+# install
+#
+
+include(CMakePackageConfigHelpers)
+include(GNUInstallDirs)
+
+set(SD_INSTALL_VERSION "${SDCPP_BUILD_VERSION}")
+set(SD_INSTALL_COMMIT  "${SDCPP_BUILD_COMMIT}")
+set(SD_SHARED_LIB      ${SD_BUILD_SHARED_LIBS})
+
+set(SD_INCLUDE_INSTALL_DIR ${CMAKE_INSTALL_INCLUDEDIR} CACHE PATH "Location of header  files")
+set(SD_LIB_INSTALL_DIR     ${CMAKE_INSTALL_LIBDIR}     CACHE PATH "Location of library files")
+set(SD_BIN_INSTALL_DIR     ${CMAKE_INSTALL_BINDIR}     CACHE PATH "Location of binary  files")
+
+set(SD_PUBLIC_HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/stable-diffusion.h)
+
+set_target_properties(${SD_LIB}
+    PROPERTIES
+        PUBLIC_HEADER "${SD_PUBLIC_HEADERS}")
+
+
+install(TARGETS ${SD_LIB}
+        ARCHIVE
+        LIBRARY
+        RUNTIME
+        PUBLIC_HEADER)
+
+
+configure_package_config_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/stable-diffusion-config.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/stable-diffusion-config.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/stable-diffusion
+    PATH_VARS SD_INCLUDE_INSTALL_DIR
+              SD_LIB_INSTALL_DIR
+              SD_BIN_INSTALL_DIR )
+
+write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/stable-diffusion-version.cmake
+    VERSION ${SD_INSTALL_VERSION}
+    COMPATIBILITY SameMajorVersion)
+
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/stable-diffusion-config.cmake
+              ${CMAKE_CURRENT_BINARY_DIR}/stable-diffusion-version.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/stable-diffusion)
+
+configure_file(cmake/stable-diffusion.pc.in
+        "${CMAKE_CURRENT_BINARY_DIR}/stable-diffusion.pc"
+        @ONLY)
+
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/stable-diffusion.pc"
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)

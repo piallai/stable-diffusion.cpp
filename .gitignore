@@ -1,6 +1,7 @@
 build*/
 cmake-build-*/
 test/
+tests/
 .vscode/
 .idea/
 .cache/
@@ -14,3 +15,7 @@ models*
 *.log
 preview.png
 *.json
+.claude/
+CLAUDE.local.md
+.agents/
+.codex/
