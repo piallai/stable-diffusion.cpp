@@ -8,14 +8,17 @@
 
 glvm_SlvEnum(ProcessingMode, img_gen, vid_gen, upscale, convert);
 glvm_SlvEnum_named(WeightType, weight_file_type, "", f32, "f32", f16, "f16", q4_0, "q4_0", q4_1, "q4_1", q5_0, "q5_0", q5_1, "q5_1", q8_0, "q8_0", q2_k, "q2_k", q3_k, "q3_k", q4_k, "q4_k");
-glvm_SlvEnum_named(SamplingMethod, euler, "euler", euler_a, "euler_a", heun, "heun", dpm2, "dpm2", dpmpp2s_a, "dpm++2s_a", dpmpp2m, "dpm++2m", dpmpp2mv2, "dpm++2mv2", ipndm, "ipndm", ipndm_v, "ipndm_v", lcm, "lcm", ddim_trailing, "ddim_trailing", tcd, "tcd");
-glvm_SlvEnum(Rng, std_default, cuda, cpu);
-glvm_SlvEnum(Prediction, eps, v, edm_v, sd3_flow, flux_flow);
+glvm_SlvEnum_named(SamplingMethod, euler, "euler", euler_a, "euler_a", heun, "heun", dpm2, "dpm2", dpmpp2s_a, "dpm++2s_a", dpmpp2m, "dpm++2m", dpmpp2mv2, "dpm++2mv2", ipndm, "ipndm", ipndm_v, "ipndm_v", lcm, "lcm", ddim_trailing, "ddim_trailing", tcd, "tcd", res_multistep, "res_multistep", res_2s, "res_2s", er_sde, "er_sde", euler_cfg_pp, "euler_cfg_pp", euler_a_cfg_pp, "euler_a_cfg_pp", euler_ge, "euler_ge", dpmpp2m_sde, "dpm++2m_sde", dpmpp2m_sde_bt, "dpm++2m_sde_bt", lms, "lms");
+glvm_SlvEnum(Rng, std_default, cuda, cpu, sampler_rng);
+glvm_SlvEnum(Prediction, eps, v, edm_v, sd3_flow, flux_flow, sefi_flow, minit2i_flow, sensenova_u1_flow, default_);
 glvm_SlvEnum_named(LoraApplyMode, Auto, "auto", immediately, "immediately", at_runtime, "at_runtime");
-glvm_SlvEnum(Scheduler, discrete, karras, exponential, ays, gits, smoothstep, sgm_uniform, simple, kl_optimal, lcm);
+glvm_SlvEnum(Scheduler, discrete, karras, exponential, ays, gits, smoothstep, sgm_uniform, simple, kl_optimal, lcm, bong_tangent, ltx2, logit_normal, flux2, flux, beta, llada_image);
 glvm_SlvEnum(Preview, none, proj, tae, vae);
-glvm_SlvEnum_named(CacheMode, disabled, "disabled", easycache, "easycache", ucache, "ucache", dbcache, "dbcache", taylorseer, "taylorseer", cache_dit, "cache-dit");
+glvm_SlvEnum_named(CacheMode, disabled, "disabled", easycache, "easycache", ucache, "ucache", dbcache, "dbcache", taylorseer, "taylorseer", cache_dit, "cache-dit", spectrum, "spectrum");
 glvm_SlvEnum_named(ScmPolicy, dynamic, "dynamic", static_, "static");
+glvm_SlvEnum_named(VaeFormat, Auto, "auto", flux, "flux", sd3, "sd3", flux2, "flux2", wan, "wan");
+glvm_SlvEnum_named(SplitMode, none, "", layer, "layer", row, "row");
+glvm_SlvEnum(AutoFit, on, off);
 
 glvm_parametrization(GlvSdParamsPhotomaker, "Photomaker params",
     pm_id_embed_path, SlvFile, "--pm-id-embed-path", "path to PHOTOMAKER v2 id embed", SlvFile(SlvFile::IO::Read),
@@ -35,8 +38,12 @@ glvm_parametrization(GlvSdParamsImageVideoInput, "Image/video input params",
     control_image, SlvFile, "--control-image", "path to control image, control net", SlvFile(SlvFile::IO::Read),
     control_video, SlvDirectory, "--control-video", "path to control video frames, It must be a directory path. The video frames inside should be stored as images in\nlexicographical (character) order. For example, if the control video path is\n`frames`, the directory contain images such as 00.png, 01.png, ... etc.", SlvDirectory(),
     ref_image, SlvFile, "--ref-image", "reference image for Flux Kontext models (can be used multiple times)", SlvFile(SlvFile::IO::Read),
-    disable_auto_resize_ref_image, bool, "--disable-auto-resize-ref-image", "disable auto resize of ref images", false
-)
+    ip_adapter_image, SlvFile, "--ip-adapter-image", "path to the IP-Adapter reference image", SlvFile(SlvFile::IO::Read),
+    ref_video, SlvFile, "--ref-video", "MiniMax-H3 Ref2VA reference video frame directory at 24 fps (can be used multiple times)", SlvFile(SlvFile::IO::Read),
+    ref_video_audio, SlvFile, "--ref-video-audio", "WAV soundtrack paired by index with --ref-video (can be used multiple times)", SlvFile(SlvFile::IO::Read),
+    ref_audio, SlvFile, "--ref-audio", "standalone WAV reference for MiniMax-H3 Ref2VA (can be used multiple times)", SlvFile(SlvFile::IO::Read),
+    audio, SlvFile, "--audio", "driving audio track (Wan2.2 S2V; can be used once)", SlvFile(SlvFile::IO::Read),
+    image_preprocess, std::string, "--image-preprocess", "Image preprocessing rule: target=init|end|mask|control|ref|ip-adapter|id|control-frame,index=N,mode=auto|none|stretch|crop|crop-resize|fit-pad,filter=auto|nearest|nearest-exact|bilinear|bicubic|lanczos,antialias=auto|true|false,width=W,height=H,anchor=center|top|bottom|left|right,pad_color=#RRGGBB[AA],canny=true|false. Repeat for multiple rules.", "")
 
 glvm_parametrization(GlvSdParamsVideo, "Video params",
     video_frames, int, "--video-frames", "video frames (default: 1)", 1,
@@ -60,9 +67,9 @@ glvm_parametrization(GlvSdParamsOnCPU, "On CPU",
 )
 
 glvm_parametrization(GlvSdParamsPreview, "Preview params",
-    preview, Preview, "--preview", "preview method. must be one of the following [none, proj, tae, vae].] (default is none)", Preview::none,
-    preview_path, SlvFile, "--preview-path", "path to write preview image to (default: ./preview.png)", SlvFile("./preview.png", SlvFileExtensions({".png", ".jpg", ".jpeg", ".jpe"}), SlvFile::IO::Write),
-    preview_interval, unsigned int, "--preview-interval", "interval in denoising steps between consecutive updates of the image preview file (default is 1, meaning updating at every step)", 1,
+    preview, Preview, "--preview", "preview method. must be one of the following [none, proj, tae, vae].] (default is none)", Preview::none, preview_path,
+    SlvFile, "--preview-path", "path to write preview image to (default: ./preview.png). For image generation, the filename can have %03d placeholder for sequential numbering. Multi-frame previews support .avi, .webm, and animated .webp", SlvFile("./preview.png", SlvFileExtensions({".png", ".jpg", ".jpeg", ".jpe"}), SlvFile::IO::Write),
+    preview_interval, unsigned int, "--preview-interval", "preview interval: in each sampling pass, positive N updates every Nth denoiser step and -N previews only completed logical step N; 0 previews the final completed step of the first pass (base-resolution or high-noise). Default: 1", 1,
     preview_noisy, bool, "--preview-noisy", "enables previewing noisy inputs of the models rather than the denoised outputs", true,
     taesd_preview_only, bool, "--taesd-preview-only", "prevents usage of taesd for decoding the final image. (for use with --preview tae)", true
 )
@@ -83,6 +90,7 @@ glvm_parametrization(GlvSdModels, "Models",
     diffusion_model, SlvFile, "--diffusion-model", "path to the standalone diffusion model", SlvFile(SlvFileExtensions({".gguf", ".safetensors", ".sft"}), SlvFile::IO::Read),
     high_noise_diffusion_model, SlvFile, "--high-noise-diffusion-model", "path to the standalone high noise diffusion model", SlvFile(SlvFileExtensions({".gguf", ".safetensors", ".sft"}), SlvFile::IO::Read),
     uncond_diffusion_model, SlvFile, "--uncond-diffusion-model", "path to the standalone unconditional diffusion model, currently used by\nIdeogram4 CFG", SlvFile(SlvFileExtensions({".gguf", ".safetensors", ".sft"}), SlvFile::IO::Read),
+    embeddings_connectors, SlvFile, "--embeddings-connectors", "path to LTXAV embeddings connectors", SlvFile(SlvFileExtensions({".gguf", ".safetensors", ".sft"}), SlvFile::IO::Read),
     vae, SlvFile, "--vae", "path to vae", SlvFile("", SlvFileExtensions({".safetensors", ".sft"}), SlvFile::IO::Read),
     taesd, SlvFile, "--taesd@--tae", "path to taesd. Using Tiny AutoEncoder for fast decoding (low quality)", SlvFile("", SlvFileExtensions({".safetensors", ".sft", ".gguf"}), SlvFile::IO::Read),
     control_net, SlvFile, "--control-net", "path to control net model", SlvFile(SlvFile::IO::Read),
@@ -91,7 +99,11 @@ glvm_parametrization(GlvSdModels, "Models",
     hires_upscalers_dir, SlvDirectory, "--hires-upscalers-dir", "highres fix upscaler model directory", SlvDirectory(),
     photo_maker_path, SlvFile, "--photo-maker", "path to PHOTOMAKER model", SlvFile(SlvFile::IO::Read),
     upscale_model, SlvFile, "--upscale-model", "path to esrgan model. Upscale images after generate, just RealESRGAN_x4plus_anime_6B supported by now", SlvFile(SlvFile::IO::Read),
-    pulid_weights, SlvFile, "--pulid-weights", "path to PuLID Flux weights", SlvFile(SlvFile::IO::Read))
+    pulid_weights, SlvFile, "--pulid-weights", "path to PuLID Flux weights", SlvFile(SlvFile::IO::Read),
+    ip_adapter, SlvFile, "--ip-adapter", "path to IP-Adapter model (requires --clip_vision)", SlvFile(SlvFile::IO::Read),
+    motion_module, SlvFile, "--motion-module", "path to AnimateDiff motion module (SD 1.5); enables video generation on --video-frames > 1", SlvFile(SlvFile::IO::Read),
+    audio_vae, SlvFile, "--audio-vae", "path to standalone LTX audio vae model", SlvFile(SlvFile::IO::Read),
+    audio_encoder, SlvFile, "--audio-encoder", "path to wav2vec2 audio encoder model (Wan2.2 S2V)", SlvFile(SlvFile::IO::Read))
 
 glvm_parametrization(GlvSdModelSLG, "SLG params",
     slg_scale, float, "--slg-scale", "skip layer guidance (SLG) scale, only for DiT models: (default: 0)\n0 means disabled, a value of 2.5 is nice for sd3.5 medium.", 0.f,
@@ -150,11 +162,12 @@ glvm_parametrization(GlvSdParamsHighNoise, "SD params (high noise)",
 #endif
 
 glvm_parametrization(GlvSdCLIOptionsAdvanced, "CLI options advanced",
+    compression_quality, unsigned int, "--compression-quality", "compression quality of video and JPEG / WebP images (90 by default)", 90,
+    imat_out, SlvFile, "--imat-out", "compute the imatrix for this run and save it to the provided path", SlvFile(SlvFile::IO::Write),
+    imat_in, SlvFile, "--imat-in", "load an imatrix file for quantization or continued collection; can be specified multiple times, but only once using the GUI interface for now", SlvFile(SlvFile::IO::Read),
     output_begin_idx, unsigned int, "--output-begin-idx", "starting index for output image sequence, must be non-negative (default 0 if specified %d in output path, 1 otherwise)", 1,
-    canny, bool, "--canny", "apply canny preprocessor (edge detection)", false,
     convert_name, bool, "--convert-name", "convert tensor name (for convert mode)", false,
-    color, bool, "--color", "colors the logging tags according to level", false,
-    verbose, bool, "--verbose@-v", "print extra info", false
+    color, bool, "--color", "colors the logging tags according to level", false
 )
 
 glvm_SlvEnum(MetadataFormat, text, json);
@@ -168,7 +181,7 @@ glvm_parametrization(GlvSdCLIOptionsMetadata, "CLI options metadata",
 )
 
 glvm_parametrization(GlvSdCLIOptions, "CLI options",
-    mode, ProcessingMode, "--mode@-M", "run mode, one of [img_gen, vid_gen, upscale, convert], default: img_gen", ProcessingMode::img_gen,
+    mode, ProcessingMode, "--mode@-M", "run mode, one of [img_gen, adetailer, vid_gen, upscale, convert, metadata], default: img_gen", ProcessingMode::img_gen,
     output, SlvFile, "--output@-o", "path to write result image to. you can use printf-style %d format specifiers for image sequences (default: ./output.png) (eg. output_%03d.png)", SlvFile("./output.png", SlvFileExtensions({".png", ".jpg", ".jpeg", ".jpe", ".gguf"}), SlvFile::IO::Write),
     preview_params, GlvSdParamsPreview, "Preview", "", GlvSdParamsPreview(),
     metadata_params, GlvSdCLIOptionsMetadata, "Metadata", "", GlvSdCLIOptionsMetadata(),
@@ -180,29 +193,44 @@ glvm_parametrization(GlvSdBackend, "Backend",
     params_backend, std::string, "--params-backend", "parameter backend assignment, e.g. disk, cpu, or diffusion=disk,clip=cpu", ""
 )
 
-glvm_parametrization(GlvSdContextOptionsAdvanced, "Context options advanced",
-    threads, int, "--threads@-t", "number of threads to use during computation (default: -1) \nIf threads <= 0, then threads will be set to the number of CPU physical cores", -1,
-    max_vram, std::string, "--max-vram", "maximum VRAM budget in GiB for graph-cut segmented execution. Accepts a\nsingle value or assignments by backend/device, e.g. 6 or cuda0=6,vulkan0=4.\n0 disables graph splitting; a negative value auto-detects free VRAM, sparing\n the specified value", "0",
-    backend, GlvSdBackend, "Backend", "", GlvSdBackend(),
-    chroma_params, GlvSdParamsChroma, "Chroma", "", GlvSdParamsChroma(),
-    Vae_tiling_params, GlvSdParamsVaeTiling, "Vae tiling", "", GlvSdParamsVaeTiling(),
-    qwen_image_zero_cond_t, bool, "--qwen-image-zero-cond-t", "enable zero_cond_t for qwen image", false,
-    flow_shift, float, "--flow-shift", "shift value for Flow models like SD3.x or WAN (default: auto)", INFINITY,
+glvm_parametrization(GlvSdContextOptionsCircular, "Circular",
+    circular, bool, "--circular", "enable circular padding for convolutions", false,
+    circularx, bool, "--circularx", "enable circular RoPE wrapping on x-axis (width) only", false,
+    circulary, bool, "--circulary", "enable circular RoPE wrapping on y-axis (height) only", false
+)
+glvm_parametrization(GlvSdContextOptionsAdvancedOptions, "Context options advanced options",
+    disable_prefetch, bool, "--disable-prefetch", "disable asynchronous next-segment weight prefetch (defaults to false)", false,
+    disable_segmented_compute, bool, "--disable-segmented-compute", "force monolithic graph execution even when automatic graph cutting is needed (defaults to false)", false,
+    eager_load, bool, "--eager-load", "load all params into the params backend at model-load time instead of lazily on first use (defaults to false)", false,
     force_sdxl_vae_conv_scale, bool, "--force-sdxl-vae-conv-scale", "force use of conv scale on sdxl vae", false,
     mmap, bool, "--mmap", "whether to memory-map model", false,
-    On_CPU_params, GlvSdParamsOnCPU, "On CPU", "", GlvSdParamsOnCPU(),
     fa, bool, "--fa", "use flash attention", false,
     diffusion_fa, bool, "--diffusion-fa", "use flash attention in the diffusion model only", false,
     diffusion_conv_direct, bool, "--diffusion-conv-direct", "use ggml_conv2d_direct in the diffusion model", false,
+    sage_attn, bool, "--sage-attn", "use native CUDA SageAttention in the diffusion model, with flash/default attention fallback", false,
     vae_conv_direct, bool, "--vae-conv-direct", "use ggml_conv2d_direct in the vae model", false,
-    circular, bool, "--circular", "enable circular padding for convolutions", false,
-    circularx, bool, "--circularx", "enable circular RoPE wrapping on x-axis (width) only", false,
-    circulary, bool, "--circulary", "enable circular RoPE wrapping on y-axis (height) only", false,
+    auto_fit, AutoFit, "--auto-fit", "on|off (default: on). Preserve --backend (otherwise select one GPU) and place weights on the compute GPU, \nRAM, another GPU, or disk in that order, according to available memory (--max-vram limits GPU budgets).\nDisabled by explicit --params-backend; uses automatic graph segmentation when needed", AutoFit::on)
+
+glvm_parametrization(GlvSdContextOptionsAdvanced, "Context options advanced",
+    advanced_options, GlvSdContextOptionsAdvancedOptions, "Advanced options", "", GlvSdContextOptionsAdvancedOptions(),
+    linear_scale, float, "--linear-scale", "linear input scale override (float, default: 0 = model default, 1 = no scaling)", 0.f,
+    attn_scale, float, "--attn-scale", "flash-attention K/V scale override (float, default: 0 = model default, 1 = no scaling); requires --fa or --diffusion-fa", 0.f,
+    tokenizer, std::string, "--tokenizer", "tokenizer.json path, or comma-separated main=FILE,clip-l=FILE,clip-g=FILE assignments; required for PiD and Lens", "",
+    threads, int, "--threads@-t", "number of threads to use during computation (default: -1) \nIf threads <= 0, then threads will be set to the number of CPU physical cores", -1,
+    conditioning_cache_size, unsigned int, "--conditioning-cache-size", "maximum number of conditioning results cached per model context (default: 4, 0 disables caching)", 4,
+    max_vram, std::string, "--max-vram", "maximum VRAM budget in GiB for graph-cut segmented execution. Accepts a\nsingle value or assignments by backend/device, e.g. 6 or cuda0=6,vulkan0=4.\n0 disables graph splitting; a negative value auto-detects free VRAM, sparing\n the specified value", "0",
+    backend, GlvSdBackend, "Backend", "", GlvSdBackend(),
+    vae_format, VaeFormat, "--vae-format", "VAE latent format override: auto, flux, sd3, flux2, or wan (default: auto)", VaeFormat::Auto,
+    Vae_tiling_params, GlvSdParamsVaeTiling, "Vae tiling", "", GlvSdParamsVaeTiling(),
+    split_mode, SplitMode, "--split-mode", "weight distribution for modules assigned multiple devices (--backend \"diffusion=cuda0&cuda1\"): layer (whole transformer blocks per device, default) or row (matmul rows split across devices, CUDA only). Accepts a single mode or per-module assignments, e.g. row or diffusion=row,te=layer", SplitMode::none,
+    flow_shift, float, "--flow-shift", "shift value for Flow models like SD3.x or WAN (default: auto)", INFINITY,
+    On_CPU_params, GlvSdParamsOnCPU, "On CPU", "", GlvSdParamsOnCPU(),
+    circular_params, GlvSdContextOptionsCircular, "Circular", "", GlvSdContextOptionsCircular(),
     type, WeightType, "--type", "weight type (examples: f32, f16, q4_0, q4_1, q5_0, q5_1, q8_0, q2_k, q3_k, q4_k) \nIf not specified, the default is the type of the weight file", WeightType::weight_file_type,
-    rng, Rng, "--rng", "RNG, one of [std_default, cuda, cpu], default: cuda(sd-webui), cpu(comfyui)", Rng::std_default,
-    sampler_rng, Rng, "--sampler-rng", "sampler RNG, one of [std_default, cuda, cpu]. If not specified, use --rng", Rng::std_default,
+    rng, Rng, "--rng", "RNG, one of [std_default, cuda, cpu], default: cuda(sd-webui), cpu(comfyui)", Rng::cuda,
+    sampler_rng, Rng, "--sampler-rng", "sampler RNG, one of [std_default, cuda, cpu]. If not specified, use --rng", Rng::cuda,
     tensor_type_rules, std::string, "--tensor-type-rules", "weight type per tensor pattern (example: \"^vae\\.=f16,model\\.=q8_0\")", "",
-    prediction, Prediction, "--prediction", "prediction type override, one of [eps, v, edm_v, sd3_flow, flux_flow, flux2_flow]", Prediction::eps,
+    prediction, Prediction, "--prediction", "prediction type override, one of [eps, v, edm_v, sd3_flow, flux_flow, sefi_flow]", Prediction::default_,
     lora_apply_mode, LoraApplyMode, "--lora-apply-mode", "the way to apply LoRA, one of [auto, immediately, at_runtime], default is auto. In auto mode, if the model weights\ncontain any quantized parameters, the at_runtime mode will be used; otherwise,\nimmediately will be used.The immediately mode may have precision and\ncompatibility issues with quantized parameters, but it usually offers faster inference\nspeed and, in some cases, lower memory usage. The at_runtime mode, on the\nother hand, is exactly the opposite.", LoraApplyMode::Auto,
     rpc_servers, std::string, "--rpc-servers", "comma-separated list of RPC servers to connect to for offloading, in the format host:port, e.g. localhost:50052,192.168.1.3:50052", ""
 )
@@ -213,7 +241,7 @@ glvm_parametrization(GlvSdContextOptions, "Context options",
 )
 
 glvm_parametrization(GlvSdCacheParams, "Cache params",
-    cache_mode, CacheMode, "--cache-mode", "caching method: 'easycache' (DiT), 'ucache' (UNET), 'dbcache'/'taylorseer'/'cache-dit' (DiT block-level)", CacheMode::disabled,
+    cache_mode, CacheMode, "--cache-mode", "caching method: 'easycache' (DiT), 'ucache' (UNET), 'dbcache'/'taylorseer'/'cache-dit' (DiT block-level), 'spectrum' (UNET/DiT Chebyshev+Taylor forecasting)", CacheMode::disabled,
     cache_option, std::string, "--cache-option", "named cache params (key=value format, comma-separated). easycache/ucache:\nthreshold=,start=,end=,decay=,relative=,reset=; dbcache/taylorseer/cache-dit:\nFn=,Bn=,threshold=,warmup=; spectrum: w=,m=,lam=,window=,flex=,warmup=,stop=.\nExamples: \"threshold=0.25\" or \"threshold=1.5,reset=0\"", {},
     scm_mask, std::string, "--scm-mask", "SCM steps mask for cache-dit: comma-separated 0/1 (e.g., \"1,1,1,0,0,1,0,0,1,0\") - 1=compute, 0=can cache", {},
     scm_policy, ScmPolicy, "--scm-policy", "SCM policy: 'dynamic' (default) or 'static'", ScmPolicy::dynamic
@@ -238,7 +266,9 @@ glvm_parametrization(GlvSdGenerationOptionsAdvanced, "Generation options advance
     clip_skip, int, "--clip-skip", "ignore last layers of CLIP network; 1 ignores none, 2 ignores one layer (default: -1) \n<= 0 represents unspecified, will be 1 for SD1.x, 2 for SD2.x", -1,
     moe_boundary, float, "--moe-boundary", "timestep boundary for Wan2.2 MoE model. (default: 0.875). Only enabled if `--high-noise-steps` is set to -1", 0.875f,
     vace_strength, float, "--vace-strength", "wan vace strength", 1.f,
+    ip_adapter_strength, float, "--ip-adapter-strength", "strength to apply IP-Adapter (default: 1.0)", 1.f,
     sigmas, std::string, "--sigmas", "custom sigma values for the sampler, comma-separated (e.g., \"14.61,7.8,3.5,0.0\").", {},    
+    qwen_image_layers, int, "--qwen-image-layers", "number of Qwen Image Layered layers; latent/output count is layers + 1 (default: 3)", 3,
     increase_ref_index, bool, "--increase-ref-index", "automatically increase the indices of references images based on the order they are listed (starting with 1).", false,
     sampling_method, SamplingMethod, "--sampling-method", "{euler, euler_a, heun, dpm2, dpm++2s_a, dpm++2m, dpm++2mv2, ipndm, ipndm_v, lcm, ddim_trailing, tcd} \nsampling method (default: 'euler_a')", SamplingMethod::euler_a,
     scheduler, Scheduler, "--scheduler", "denoiser sigma scheduler, one of [discrete, karras, exponential, ays, gits,\nsmoothstep, sgm_uniform, simple, kl_optimal, lcm, bong_tangent, ltx2], default:\nmodel-specific", Scheduler::discrete,
@@ -246,6 +276,13 @@ glvm_parametrization(GlvSdGenerationOptionsAdvanced, "Generation options advance
     extra_tiling_args, std::string, "--extra-tiling-args", "extra VAE tiling args, key=value list. LTX video VAE supports\ntemporal_tile_frames (default: 4), temporal_tile_overlap (default: 1)", "",
     cache, GlvSdCacheParams, "Cache params", "", GlvSdCacheParams(),
     high_noise_params, GlvSdParamsHighNoise, "High noise", "", GlvSdParamsHighNoise()
+)
+
+glvm_parametrization(GlvSdADetailerParams, "ADetailer params",
+    ad_model, SlvFile, "--ad-model", "path to a converted YOLOv8 detection model for ADetailer", SlvFile("", SlvFileExtensions({".safetensors", ".sft", ".gguf"}), SlvFile::IO::Read),
+    ad_prompt, std::string, "--ad-prompt", "ADetailer prompt; empty inherits the main prompt, supports [PROMPT], [SEP], and [SKIP]", "",
+    ad_negative_prompt, std::string, "--ad-negative-prompt", "ADetailer negative prompt; empty inherits the main negative prompt, supports [PROMPT] and [SEP]", "",
+    extra_ad_args, std::string, "--extra-ad-args", "extra ADetailer args, key=value list. Supports input_size, confidence, nms, max_detections, mask_k_largest, mask_min_ratio, mask_max_ratio, dilate_erode, x_offset, y_offset, mask_mode, merge_masks, invert_mask, mask_blur, inpaint_padding, inpaint_width, inpaint_height, denoising_strength, steps, cfg_scale, sample_method, scheduler, sort_by", ""
 )
 
 glvm_parametrization(GlvSdGenerationOptions, "Generation options",
@@ -263,6 +300,7 @@ glvm_parametrization(GlvSdGenerationOptions, "Generation options",
     video_params, GlvSdParamsVideo, "Video", "", GlvSdParamsVideo(),
     upscale_params, GlvSdParamsUpscale, "Upscale", "", GlvSdParamsUpscale(),
     hires_params, GlvSdHiresParams, "Hires", "", GlvSdHiresParams(),
+    ad_params, GlvSdADetailerParams, "ADetailer", "", GlvSdADetailerParams(),
     advanced_params, GlvSdGenerationOptionsAdvanced, "Advanced", "", GlvSdGenerationOptionsAdvanced()
 )
 
@@ -319,13 +357,18 @@ struct RecurrentStruct {
 
 void glove_app_init() {
 
+    ////////////////////////////////////////////////////////////////////////
+    // Deprecated now that there is "Tensors" progression. Kept for now.
     GlvApp::get_progression("Model");
     GlvApp::get_progression("clip_l");
     GlvApp::get_progression("clip_g");
     GlvApp::get_progression("t5xxl");
     GlvApp::get_progression("diffusion-model");
     GlvApp::get_progression("VAE");
+    ////////////////////////////////////////////////////////////////////////
     GlvApp::get_progression("LoRA");
+    GlvApp::get_progression("Tensors")->set_recurrent(true);
+
     GlvApp::get_progression("Batch");
     GlvApp::get_progression("Generating image")->set_recurrent(true);
     GlvApp::get_progression("Decoding");

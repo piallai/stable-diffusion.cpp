@@ -1337,11 +1337,27 @@ bool ModelLoader::load_tensors(on_new_tensor_cb_t on_new_tensor_cb,
             });
         }
 
+#ifdef SD_EXAMPLES_GLOVE_GUI
+        SlvProgressionQt& p = *GlvApp::get_progression("Tensors");
+        p.set_message("Loading " + SlvFile(file_path).get_file_name().get_total_name());
+        total_tensors_to_process;
+        p = 0;
+#endif
+
         while (true) {
             size_t current_idx = tensor_idx.load();
+#ifdef SD_EXAMPLES_GLOVE_GUI
+            if (current_idx >= tensors_to_process.size() || failed || !(p << tensors_to_process.size())) {
+                break;
+            } else {
+                p.update(current_idx);
+            }
+#else
             if (current_idx >= tensors_to_process.size() || failed) {
                 break;
             }
+#endif
+               
             size_t curr_num       = total_tensors_processed + current_idx;
             float elapsed_seconds = (ggml_time_ms() - t_start) / 1000.0f;
             if (log_progress && total_tensors_to_process > 0) {
@@ -1357,6 +1373,8 @@ bool ModelLoader::load_tensors(on_new_tensor_cb_t on_new_tensor_cb,
             w.join();
         }
 
+        p.update(tensors_to_process.size());
+        p.end();
         if (failed) {
             success = false;
             break;

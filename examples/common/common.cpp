@@ -743,11 +743,13 @@ ArgOptions SDContextParams::get_options() {
         }
         const char* arg = argv[index];
         prediction      = str_to_prediction(arg);
+#ifndef SD_EXAMPLES_GLOVE_GUI // possibility to use a default argument
         if (prediction == PREDICTION_COUNT) {
             LOG_ERROR("error: invalid prediction type %s",
                       arg);
             return -1;
         }
+#endif
         return 1;
     };
 

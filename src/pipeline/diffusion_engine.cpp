@@ -53,6 +53,11 @@
 
 #include <atomic>
 
+#ifdef SD_EXAMPLES_GLOVE_GUI
+#define GLOVE_ENABLE_JSON
+#include "glove.h"
+#endif
+
 const char* model_version_to_str[] = {
     "SD 1.x",
     "SD 1.x Inpaint",
@@ -722,6 +727,10 @@ bool StableDiffusionGGML::init_model_loader(ModelLoader& model_loader, ModelConf
     auto& use_tae             = configuration.use_tae;
     auto& use_audio_vae       = configuration.use_audio_vae;
     if (strlen(SAFE_STR(sd_ctx_params->model_path)) > 0) {
+#ifdef SD_EXAMPLES_GLOVE_GUI
+        GlvApp::get_progression("Model")->set_message("Loading " + SlvFile(sd_ctx_params->model_path).get_file_name().get_total_name());
+        GlvApp::get_progression("Model")->start();
+#endif
         LOG_INFO("loading model from '%s'", sd_ctx_params->model_path);
         if (!model_loader.init_from_file(sd_ctx_params->model_path)) {
             LOG_ERROR("init model loader from file failed: '%s'", sd_ctx_params->model_path);
@@ -729,6 +738,10 @@ bool StableDiffusionGGML::init_model_loader(ModelLoader& model_loader, ModelConf
     }
 
     if (strlen(SAFE_STR(sd_ctx_params->diffusion_model_path)) > 0) {
+#ifdef SD_EXAMPLES_GLOVE_GUI
+        GlvApp::get_progression("diffusion-model")->set_message("Loading " + SlvFile(sd_ctx_params->diffusion_model_path).get_file_name().get_total_name());
+        GlvApp::get_progression("diffusion-model")->start();
+#endif
         LOG_INFO("loading diffusion model from '%s'", sd_ctx_params->diffusion_model_path);
         if (!model_loader.init_from_file(sd_ctx_params->diffusion_model_path, "model.diffusion_model.")) {
             LOG_WARN("loading diffusion model from '%s' failed", sd_ctx_params->diffusion_model_path);
@@ -750,6 +763,10 @@ bool StableDiffusionGGML::init_model_loader(ModelLoader& model_loader, ModelConf
     }
 
     if (strlen(SAFE_STR(sd_ctx_params->clip_l_path)) > 0) {
+#ifdef SD_EXAMPLES_GLOVE_GUI
+        GlvApp::get_progression("clip_l")->set_message("Loading " + SlvFile(sd_ctx_params->clip_l_path).get_file_name().get_total_name());
+        GlvApp::get_progression("clip_l")->start();
+#endif
         LOG_INFO("loading clip_l from '%s'", sd_ctx_params->clip_l_path);
         if (!model_loader.init_from_file(sd_ctx_params->clip_l_path, "clip_l.")) {
             LOG_WARN("loading clip_l from '%s' failed", sd_ctx_params->clip_l_path);
@@ -757,6 +774,10 @@ bool StableDiffusionGGML::init_model_loader(ModelLoader& model_loader, ModelConf
     }
 
     if (strlen(SAFE_STR(sd_ctx_params->clip_g_path)) > 0) {
+#ifdef SD_EXAMPLES_GLOVE_GUI
+        GlvApp::get_progression("clip_g")->set_message("Loading " + SlvFile(sd_ctx_params->clip_g_path).get_file_name().get_total_name());
+        GlvApp::get_progression("clip_g")->start();
+#endif
         LOG_INFO("loading clip_g from '%s'", sd_ctx_params->clip_g_path);
         if (!model_loader.init_from_file(sd_ctx_params->clip_g_path, "clip_g.")) {
             LOG_WARN("loading clip_g from '%s' failed", sd_ctx_params->clip_g_path);
@@ -771,6 +792,10 @@ bool StableDiffusionGGML::init_model_loader(ModelLoader& model_loader, ModelConf
     }
 
     if (strlen(SAFE_STR(sd_ctx_params->t5xxl_path)) > 0) {
+#ifdef SD_EXAMPLES_GLOVE_GUI
+        GlvApp::get_progression("t5xxl")->set_message("Loading " + SlvFile(sd_ctx_params->t5xxl_path).get_file_name().get_total_name());
+        GlvApp::get_progression("t5xxl")->start();
+#endif
         LOG_INFO("loading t5xxl from '%s'", sd_ctx_params->t5xxl_path);
         if (!model_loader.init_from_file(sd_ctx_params->t5xxl_path, "text_encoders.t5xxl.transformer.")) {
             LOG_WARN("loading t5xxl from '%s' failed", sd_ctx_params->t5xxl_path);
@@ -800,6 +825,10 @@ bool StableDiffusionGGML::init_model_loader(ModelLoader& model_loader, ModelConf
     }
 
     if (strlen(SAFE_STR(sd_ctx_params->vae_path)) > 0) {
+#ifdef SD_EXAMPLES_GLOVE_GUI
+        GlvApp::get_progression("VAE")->set_message("Loading " + SlvFile(sd_ctx_params->vae_path).get_file_name().get_total_name());
+        GlvApp::get_progression("VAE")->start();
+#endif
         LOG_INFO("loading vae from '%s'", sd_ctx_params->vae_path);
         if (!model_loader.init_from_file(sd_ctx_params->vae_path, "vae.")) {
             LOG_WARN("loading vae from '%s' failed", sd_ctx_params->vae_path);
@@ -1341,6 +1370,14 @@ bool StableDiffusionGGML::validate_and_load_runners() {
             extension_params_mem_size / 1024.0 / 1024.0,
             params_memory_location(extension_params_mem_size, SDBackendModule::PHOTOMAKER));
     }
+#ifdef SD_EXAMPLES_GLOVE_GUI
+    GlvApp::get_progression("Model")->end();
+    GlvApp::get_progression("clip_l")->end();
+    GlvApp::get_progression("clip_g")->end();
+    GlvApp::get_progression("t5xxl")->end();
+    GlvApp::get_progression("diffusion-model")->end();
+    GlvApp::get_progression("VAE")->end();
+#endif
     return true;
 }
 
@@ -1800,6 +1837,11 @@ bool StableDiffusionGGML::apply_loras(const sd_lora_t* loras, uint32_t lora_coun
         extension->collect_loras(all_loras);
     }
 
+#ifdef SD_EXAMPLES_GLOVE_GUI
+    GlvApp::get_progression("LoRA")->set_message("Attempting to apply " + std::to_string(all_loras.size()) + " LoRAs");
+    GlvApp::get_progression("LoRA")->start();
+#endif
+
     int64_t t0 = ggml_time_ms();
     end_runners();
     clear_lora_adapters();
@@ -1835,6 +1877,9 @@ bool StableDiffusionGGML::apply_loras(const sd_lora_t* loras, uint32_t lora_coun
     if (!all_loras.empty()) {
         LOG_INFO("apply_loras completed, taking %.2fs", (t1 - t0) * 1.0f / 1000);
     }
+#ifdef SD_EXAMPLES_GLOVE_GUI
+    GlvApp::get_progression("LoRA")->end();
+#endif
     conditioning_loras_ = std::move(all_loras);
     return true;
 }

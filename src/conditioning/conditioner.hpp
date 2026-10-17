@@ -3142,19 +3142,19 @@ struct LLMEmbedder : public Conditioner {
         result.c_crossattn        = std::move(hidden_states);
         result.extra_c_crossattns = std::move(extra_hidden_states_vec);
         if (version == VERSION_QWEN_IMAGE_2_1) {
-            auto slots = sd::Tensor<int32_t>::zeros({result.c_crossattn.shape()[1]});
+            auto slots_ = sd::Tensor<int32_t>::zeros({result.c_crossattn.shape()[1]});
             for (size_t i = 0; i < image_embeds.size(); ++i) {
                 int64_t begin = image_embeds[i].first - prompt_template_encode_start_idx;
                 int64_t end   = begin + image_embeds[i].second.shape()[1];
-                if (begin < 0 || end > slots.numel()) {
+                if (begin < 0 || end > slots_.numel()) {
                     LOG_ERROR("Qwen Image 2.1 image slots exceed the encoded prompt");
                     return {};
                 }
                 for (int64_t j = begin; j < end; ++j) {
-                    slots[j] = static_cast<int32_t>(i + 1);
+                    slots_[j] = static_cast<int32_t>(i + 1);
                 }
             }
-            result.c_token_types = std::move(slots);
+            result.c_token_types = std::move(slots_);
         }
         if (sd_version_is_minimax_h3(version)) {
             std::vector<int32_t> tags(static_cast<size_t>(result.c_crossattn.shape()[1]), 1);

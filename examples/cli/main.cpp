@@ -989,7 +989,7 @@ int main(int argc, char* argv[]) {
 
         if (cli_params.mode == IMG_GEN) {
             sd_image_t* generated_images = nullptr;
-            if (!generate_image(sd_ctx.get(), &img_gen_params, &generated_images, &num_results)) {
+            if (!generate_image(sd_ctx, &img_gen_params, &generated_images, &num_results)) {
                 generated_images = nullptr;
                 num_results      = 0;
             }
@@ -1000,7 +1000,7 @@ int main(int argc, char* argv[]) {
         } else if (cli_params.mode == VID_GEN) {
             sd_vid_gen_params_t vid_gen_params = gen_params.to_sd_vid_gen_params_t();
             sd_image_t* generated_video        = nullptr;
-            if (!generate_video(sd_ctx.get(), &vid_gen_params, &generated_video, &num_results, &generated_audio, &cli_params.preview_fps)) {
+            if (!generate_video(sd_ctx, &vid_gen_params, &generated_video, &num_results, &generated_audio, &cli_params.preview_fps)) {
                 generated_video = nullptr;
             }
             gen_params.fps = cli_params.preview_fps;
@@ -1018,7 +1018,7 @@ int main(int argc, char* argv[]) {
         }
 
         if (use_img_gen_params &&
-            !apply_adetailer(sd_ctx.get(),
+            !apply_adetailer(sd_ctx,
                              sd_ctx_params,
                              ctx_params,
                              gen_params,
@@ -1033,7 +1033,6 @@ int main(int argc, char* argv[]) {
         if (!is_glove_recurrent)
 #endif
             free_sd_ctx(sd_ctx);
-        }
 
     }
 

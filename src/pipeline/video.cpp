@@ -1711,6 +1711,10 @@ namespace sd::pipeline {
         }
         LOG_INFO("sampling completed, taking %.2fs", (sampling_end - sampling_start) * 1.0f / 1000);
 
+#ifdef SD_EXAMPLES_GLOVE_GUI
+        GlvApp::get_progression("Generating image")->finish(false);
+#endif
+
         if (latent_upscale_enabled) {
             if (sd->get_cancel_flag() == SD_CANCEL_ALL) {
                 LOG_ERROR("cancelling generation before latent upscale");
@@ -1854,7 +1858,13 @@ namespace sd::pipeline {
 
         int64_t latent_end = ggml_time_ms();
         LOG_INFO("generating latent video completed, taking %.2fs", (latent_end - latent_start) * 1.0f / 1000);
+#ifdef SD_EXAMPLES_GLOVE_GUI
+        GlvApp::get_progression("Decoding latent video")->start();
+#endif
 
+#ifdef SD_EXAMPLES_GLOVE_GUI
+        GlvApp::get_progression("Decoding latent video")->end();
+#endif
         sd_audio_t* generated_audio = nullptr;
         if (sd->version == VERSION_WAN2_2_S2V && sd_vid_gen_params->ref_audios_count > 0) {
             // Return the driving track for muxing with the generated video.

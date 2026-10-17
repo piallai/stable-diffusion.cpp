@@ -13,6 +13,11 @@
 #include "runtime/image_preprocess.h"
 #include "upscaler.h"
 
+#ifdef SD_EXAMPLES_GLOVE_GUI
+#define GLOVE_ENABLE_JSON
+#include "glove.h"
+#endif
+
 namespace sd::pipeline {
 
     struct CircularAxesState {
@@ -557,7 +562,14 @@ namespace sd::pipeline {
         int64_t t0     = ggml_time_ms();
         bool cancelled = false;
 
+#ifdef SD_EXAMPLES_GLOVE_GUI
+        GlvApp::get_progression("Decoding")->set_message("Processing");
+        SlvProgressionQt& p = *GlvApp::get_progression("Decoding");
+        for (p = 0; p << final_latents.size(); p++) {
+            size_t i = p;
+#else
         for (size_t i = 0; i < final_latents.size(); i++) {
+#endif
             if (sd->get_cancel_flag() == SD_CANCEL_ALL) {
                 LOG_ERROR("cancelling latent decodings");
                 cancelled = true;
@@ -848,7 +860,12 @@ namespace sd::pipeline {
 
         std::vector<sd::Tensor<float>> final_latents;
         int64_t denoise_start = ggml_time_ms();
+#ifdef SD_EXAMPLES_GLOVE_GUI
+        SlvProgressionQt& b = *GlvApp::get_progression("Batch");
+        for (b = 0; b << request.batch_count; b++) {
+#else
         for (int b = 0; b < request.batch_count; b++) {
+#endif
             sd_cancel_mode_t cancel = sd->get_cancel_flag();
             if (cancel == SD_CANCEL_ALL) {
                 LOG_ERROR("cancelling generation");
@@ -907,6 +924,9 @@ namespace sd::pipeline {
                       (sampling_end - sampling_start) * 1.0f / 1000);
             return false;
         }
+#ifdef SD_EXAMPLES_GLOVE_GUI
+        GlvApp::get_progression("Generating image")->finish(false);
+#endif
         int64_t denoise_end = ggml_time_ms();
         LOG_INFO("generating %zu latent images completed, taking %.2fs",
                  final_latents.size(),
@@ -961,7 +981,14 @@ namespace sd::pipeline {
 
             std::vector<sd::Tensor<float>> hires_final_latents;
             int64_t hires_denoise_start = ggml_time_ms();
+#ifdef SD_EXAMPLES_GLOVE_GUI
+            GlvApp::get_progression("Decoding")->set_message("Processing");
+            SlvProgressionQt& p = *GlvApp::get_progression("Decoding");
+            for (p = 0; p << final_latents.size(); p++) {
+                size_t b = p;
+#else
             for (int b = 0; b < (int)final_latents.size(); b++) {
+#endif
                 if (sd->get_cancel_flag() == SD_CANCEL_ALL) {
                     LOG_ERROR("cancelling generation during hires fix");
                     return false;
