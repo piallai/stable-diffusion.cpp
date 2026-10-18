@@ -19,6 +19,9 @@ glvm_SlvEnum_named(ScmPolicy, dynamic, "dynamic", static_, "static");
 glvm_SlvEnum_named(VaeFormat, Auto, "auto", flux, "flux", sd3, "sd3", flux2, "flux2", wan, "wan");
 glvm_SlvEnum_named(SplitMode, none, "", layer, "layer", row, "row");
 glvm_SlvEnum(AutoFit, on, off);
+glvm_SlvEnum(BatchedCFG, on, off);
+glvm_SlvEnum_named(ConvDirect, on, "on", off, "off", auto_, "auto");
+glvm_SlvEnum_named(FlashAttn, on, "on", off, "off", auto_, "auto");
 
 glvm_parametrization(GlvSdParamsPhotomaker, "Photomaker params",
     pm_id_embed_path, SlvFile, "--pm-id-embed-path", "path to PHOTOMAKER v2 id embed", SlvFile(SlvFile::IO::Read),
@@ -204,17 +207,21 @@ glvm_parametrization(GlvSdContextOptionsAdvancedOptions, "Context options advanc
     eager_load, bool, "--eager-load", "load all params into the params backend at model-load time instead of lazily on first use (defaults to false)", false,
     force_sdxl_vae_conv_scale, bool, "--force-sdxl-vae-conv-scale", "force use of conv scale on sdxl vae", false,
     mmap, bool, "--mmap", "whether to memory-map model", false,
-    fa, bool, "--fa", "use flash attention", false,
-    diffusion_fa, bool, "--diffusion-fa", "use flash attention in the diffusion model only", false,
-    diffusion_conv_direct, bool, "--diffusion-conv-direct", "use ggml_conv2d_direct in the diffusion model", false,
+    fa, bool, "--fa", "deprecated; use --flash-attn on", false,
+    diffusion_fa, bool, "--diffusion-fa", "deprecated; use --flash-attn off,diffusion=on", false,
+    diffusion_conv_direct, bool, "--diffusion-conv-direct", "deprecated; use --conv-direct auto,diffusion=on,controlnet=on", false,
     sage_attn, bool, "--sage-attn", "use native CUDA SageAttention in the diffusion model, with flash/default attention fallback", false,
-    vae_conv_direct, bool, "--vae-conv-direct", "use ggml_conv2d_direct in the vae model", false,
-    auto_fit, AutoFit, "--auto-fit", "on|off (default: on). Preserve --backend (otherwise select one GPU) and place weights on the compute GPU, \nRAM, another GPU, or disk in that order, according to available memory (--max-vram limits GPU budgets).\nDisabled by explicit --params-backend; uses automatic graph segmentation when needed", AutoFit::on)
+    vae_conv_direct, bool, "--vae-conv-direct", "deprecated; use --conv-direct auto,vae=on", false,
+    conv_direct, ConvDirect, "--conv-direct", "on|off|auto or diffusion/vae/controlnet assignments (default: auto), e.g. auto,vae=off. Overrides legacy convolution flags", ConvDirect::auto_,
+    flash_attn, FlashAttn, "--flash-attn", "on|off|auto or module assignments (default: auto), e.g. auto,te=off,vae=on. Last repeated option wins", FlashAttn::auto_,
+    auto_fit, AutoFit, "--auto-fit", "on|off (default: on). Preserve --backend (otherwise select one GPU) and place weights on the compute GPU, \nRAM, another GPU, or disk in that order, according to available memory (--max-vram limits GPU budgets).\nDisabled by explicit --params-backend; uses automatic graph segmentation when needed", AutoFit::on,
+    batched_cfg, BatchedCFG, "--batched-cfg", "on|off (default: on). Run the conditional and unconditional CFG branches in one batched UNet forward when supported", BatchedCFG::on
+)
 
 glvm_parametrization(GlvSdContextOptionsAdvanced, "Context options advanced",
     advanced_options, GlvSdContextOptionsAdvancedOptions, "Advanced options", "", GlvSdContextOptionsAdvancedOptions(),
     linear_scale, float, "--linear-scale", "linear input scale override (float, default: 0 = model default, 1 = no scaling)", 0.f,
-    attn_scale, float, "--attn-scale", "flash-attention K/V scale override (float, default: 0 = model default, 1 = no scaling); requires --fa or --diffusion-fa", 0.f,
+    attn_scale, float, "--attn-scale", "flash-attention K/V scale override (float, default: 0 = model default, 1 = no scaling); applies when flash attention is selected", 0.f,
     tokenizer, std::string, "--tokenizer", "tokenizer.json path, or comma-separated main=FILE,clip-l=FILE,clip-g=FILE assignments; required for PiD and Lens", "",
     threads, int, "--threads@-t", "number of threads to use during computation (default: -1) \nIf threads <= 0, then threads will be set to the number of CPU physical cores", -1,
     conditioning_cache_size, unsigned int, "--conditioning-cache-size", "maximum number of conditioning results cached per model context (default: 4, 0 disables caching)", 4,
